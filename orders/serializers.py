@@ -1,0 +1,63 @@
+from rest_framework import serializers
+from orders.models import Order, OrderItem
+from catalog.serializers import ProductSerializer
+from payments.models import Payment
+
+class OrderItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OrderItem
+        fields = ['id', 'product', 'quantity', 'unit_price', 'is_ready']
+        read_only_fields = ['is_ready']
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        # Expose product details gracefully for rendering without breaking write validation
+        representation['product'] = {
+            'id': instance.product.id,
+            'name': instance.product.name,
+        }
+        return representation
+
+class OrderSerializer(serializers.ModelSerializer):
+    items = OrderItemSerializer(many=True)
+    table_number = serializers.CharField(source='table.number', read_only=True)
+    customer_name = serializers.CharField(source='customer.username', read_only=True)
+
+    class Meta:
+        model = Order
+        fields = [
+            'id', 'store', 'customer', 'customer_name', 'table', 'table_number', 'reservation', 'state', 
+            'fulfillment_mode', 'customer_phone', 'delivery_location', 'total_amount', 'created_at', 
+            'updated_at', 'scheduled_time', 'items', 'payment_message', 'payment_receipt'
+        ]
+        read_only_fields = ['state', 'total_amount', 'customer', 'created_at', 'updated_at']
+
+    def create(self, validated_data):
+        items_data = validated_data.pop('items')
+        
+        # Calculate total amount
+        total = sum(item['unit_price'] * item['quantity'] for item in items_data)
+        
+        order = Order.objects.create(total_amount=total, **validated_data)
+        
+        for item_data in items_data:
+            OrderItem.objects.create(order=order, **item_data)
+            
+        Payment.objects.create(
+            order=order,
+            amount=total,
+            status=Payment.Status.PENDING
+        )
+            
+        # Loyalty Points (1 point per $1 spent)
+        if order.customer:
+            points_earned = int(total)
+            order.customer.loyalty_points += points_earned
+            order.customer.save(update_fields=['loyalty_points'])
+            
+        # If instantly paid (e.g. walk-in POS), enqueue it
+        if order.state in [order.State.PAID, order.State.QUEUED]:
+            from stores.services import KitchenEngine
+            KitchenEngine.enqueue_order(order)
+
+        return order
