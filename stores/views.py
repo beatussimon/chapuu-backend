@@ -55,6 +55,16 @@ class StoreViewSet(viewsets.ModelViewSet):
         self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=201, headers=headers)
+        
+    @action(detail=False, methods=['get'])
+    def my_store(self, request):
+        if request.user.is_authenticated and request.user.role == 'SELLER':
+            store = Store.objects.filter(owner=request.user, is_active=True).first()
+            if store:
+                serializer = self.get_serializer(store)
+                return Response(serializer.data)
+            return Response({"error": "No active store found for this seller."}, status=404)
+        return Response({"error": "Unauthorized"}, status=403)
     
     @action(detail=True, methods=['get', 'post'])
     def tables(self, request, pk=None):
