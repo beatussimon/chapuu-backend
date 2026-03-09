@@ -12,16 +12,35 @@ class OrderViewSet(viewsets.ModelViewSet):
     Sellers can manage orders for their store.
     """
     serializer_class = OrderSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
 
     def get_queryset(self):
         user = self.request.user
-        if user.role == 'SELLER':
-            return Order.objects.filter(store__owner=user)
-        elif user.role == 'ADMIN':
-            return Order.objects.all()
+        store_id = self.request.query_params.get('store', None)
+        
+        # If a specific store is requested (Public TV Display mode)
+        if store_id:
+            return Order.objects.filter(store_id=store_id)
+
+        # Safety check for anonymous users
+        if not user or not user.is_authenticated:
+            return Order.objects.none()
+
+        if user.role == 'ADMIN':
+            return Order.objects.select_related('review').all()
+        elif user.role == 'SELLER':
+            return Order.objects.select_related('review').filter(store__owner=user)
+        elif user.role in ['CHEF', 'ACCOUNTANT']:
+            if user.employed_store:
+                return Order.objects.select_related('review').filter(store=user.employed_store)
+            return Order.objects.select_related('review').all()
+        elif user.role == 'DELIVERY':
+            qs = Order.objects.select_related('review').filter(fulfillment_mode='DELIVERY')
+            if user.employed_store:
+                qs = qs.filter(store=user.employed_store)
+            return qs
         else:
-            return Order.objects.filter(customer=user)
+            return Order.objects.select_related('review').filter(customer=user)
 
     def perform_create(self, serializer):
         # Auto-assign customer if not provided in payload
@@ -34,7 +53,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         order = self.get_object()
         
         # Only customer or store owner can cancel
-        if request.user != order.customer and request.user != order.store.owner:
+        if request.user != order.customer and request.user != order.store.owner and request.user.role != 'ADMIN':
             return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
             
         try:
@@ -47,7 +66,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     def mark_item_ready(self, request, pk=None, item_id=None):
         order = self.get_object()
         
-        if request.user.role != 'SELLER' and request.user.role != 'ADMIN':
+        if request.user.role not in ['SELLER', 'ADMIN', 'CHEF']:
             return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
             
         try:
@@ -67,12 +86,31 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def advance_state(self, request, pk=None):
         order = self.get_object()
-        if request.user.role != 'SELLER' and request.user.role != 'ADMIN':
-            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
-            
+        user = request.user
         new_state = request.data.get('state')
+        
+        # Role-based permission checks
+        allowed = False
+        if user.role == 'ADMIN' or user.role == 'SELLER':
+            allowed = True
+        elif user.role == 'ACCOUNTANT' and new_state in [Order.State.PAID, Order.State.CANCELLED]:
+            allowed = True
+        elif user.role == 'CHEF' and new_state in [Order.State.PREPARING, Order.State.READY]:
+            allowed = True
+        elif user.role == 'DELIVERY' and new_state in [Order.State.OUT_FOR_DELIVERY, Order.State.COMPLETED]:
+            allowed = True
+            
+        if not allowed:
+            return Response({"error": "Permission denied for this state transition"}, status=status.HTTP_403_FORBIDDEN)
+            
         try:
-            OrderStateMachine.transition_order(order, new_state, notes="Manual state advance via KDS")
+            # Handle delivery fee if verifying payment
+            if new_state == Order.State.PAID and 'delivery_fee' in request.data:
+                order.delivery_fee = request.data.get('delivery_fee')
+                order.total_amount = float(order.total_amount) + float(order.delivery_fee)
+                order.save(update_fields=['delivery_fee', 'total_amount'])
+
+            OrderStateMachine.transition_order(order, new_state, notes="Manual state advance via API")
             
             # For SHOP stores: when payment is verified (PAID), skip kitchen → go straight to READY
             if new_state in [Order.State.PAID, Order.State.QUEUED]:

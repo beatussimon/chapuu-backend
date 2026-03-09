@@ -1,11 +1,34 @@
 from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table
-from stores.serializers import StoreSerializer, KitchenSettingsSerializer, AdvertisementSerializer, CurrencyConfigSerializer, TableSerializer
+from django.db.models import Q
+from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice
+from stores.serializers import StoreSerializer, KitchenSettingsSerializer, AdvertisementSerializer, CurrencyConfigSerializer, TableSerializer, NoticeSerializer
 from stores.services import KitchenEngine
 from reviews.models import StoreReview
 from reviews.serializers import StoreReviewSerializer
+
+class NoticeViewSet(viewsets.ModelViewSet):
+    serializer_class = NoticeSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == 'ADMIN':
+            return Notice.objects.all()
+        elif user.role == 'SELLER':
+            return Notice.objects.filter(Q(store__owner=user) | Q(store__isnull=True))
+        else:
+            # Staff can see notices for their store or global ones
+            qs = Notice.objects.filter(Q(target_user=user) | Q(target_user__isnull=True))
+            if user.employed_store:
+                qs = qs.filter(Q(store=user.employed_store) | Q(store__isnull=True))
+            else:
+                qs = qs.filter(store__isnull=True)
+            return qs
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
 
 class CurrencyConfigViewSet(viewsets.ReadOnlyModelViewSet):
     """Public read-only endpoint for active currencies and exchange rates."""
@@ -46,6 +69,7 @@ class AdvertisementViewSet(viewsets.ModelViewSet):
 class StoreViewSet(viewsets.ModelViewSet):
     queryset = Store.objects.filter(is_active=True)
     serializer_class = StoreSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -56,15 +80,31 @@ class StoreViewSet(viewsets.ModelViewSet):
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=201, headers=headers)
         
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
     def my_store(self, request):
-        if request.user.is_authenticated and request.user.role == 'SELLER':
-            store = Store.objects.filter(owner=request.user, is_active=True).first()
-            if store:
-                serializer = self.get_serializer(store)
-                return Response(serializer.data)
-            return Response({"error": "No active store found for this seller."}, status=404)
-        return Response({"error": "Unauthorized"}, status=403)
+        user = request.user
+        if user.role not in ['SELLER', 'ADMIN', 'CHEF']:
+            return Response({"error": f"Unauthorized. Your role is {user.role}"}, status=403)
+            
+        store = None
+        
+        # 1. Try to find store by ownership (Sellers)
+        if user.role == 'SELLER':
+            store = Store.objects.filter(owner=user, is_active=True).first()
+            
+        # 2. Try to find store by employment (Chefs/Staff)
+        if not store and user.employed_store:
+            store = user.employed_store
+            
+        # 3. Fallback for ADMIN (See any active store to avoid dashboard crash)
+        if not store and user.role == 'ADMIN':
+            store = Store.objects.filter(is_active=True).first()
+            
+        if store:
+            serializer = self.get_serializer(store)
+            return Response(serializer.data)
+            
+        return Response({"error": "No active store found for your account."}, status=404)
     
     @action(detail=True, methods=['get', 'post'])
     def tables(self, request, pk=None):

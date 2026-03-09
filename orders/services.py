@@ -1,15 +1,19 @@
 from django.db import transaction
 from django.core.exceptions import ValidationError
 from orders.models import Order, OrderEventLog
+from asgiref.sync import async_to_sync
+from channels.layers import get_channel_layer
+import json
 
 class OrderStateMachine:
     VALID_TRANSITIONS = {
         Order.State.CREATED: [Order.State.AWAITING_PAYMENT, Order.State.CANCELLED],
         Order.State.AWAITING_PAYMENT: [Order.State.PAID, Order.State.CANCELLED, Order.State.EXPIRED],
-        Order.State.PAID: [Order.State.QUEUED, Order.State.PREPARING, Order.State.READY, Order.State.REFUNDED],  # READY added for shop flow
+        Order.State.PAID: [Order.State.QUEUED, Order.State.PREPARING, Order.State.READY, Order.State.REFUNDED],
         Order.State.QUEUED: [Order.State.PREPARING, Order.State.CANCELLED, Order.State.REFUNDED],
         Order.State.PREPARING: [Order.State.READY, Order.State.CANCELLED, Order.State.REFUNDED],
-        Order.State.READY: [Order.State.COMPLETED, Order.State.REFUNDED],
+        Order.State.READY: [Order.State.OUT_FOR_DELIVERY, Order.State.COMPLETED, Order.State.REFUNDED],
+        Order.State.OUT_FOR_DELIVERY: [Order.State.COMPLETED, Order.State.REFUNDED],
         Order.State.COMPLETED: [Order.State.REFUNDED],
         Order.State.CANCELLED: [],
         Order.State.EXPIRED: [],
@@ -26,11 +30,8 @@ class OrderStateMachine:
             raise ValidationError(f"Invalid transition from {order.state} to {new_state}.")
 
         with transaction.atomic():
-            # In a real app with Postgres, use `select_for_update` to lock the row.
-            # SQLite does file-level locking, so this is safe sequentially but not totally concurrent-proof.
             locked_order = Order.objects.get(id=order.id)
             
-            # Double check state hasn't changed
             if new_state not in cls.VALID_TRANSITIONS.get(locked_order.state, []):
                 raise ValidationError(f"Invalid transition from {locked_order.state} to {new_state}.")
             
@@ -45,4 +46,36 @@ class OrderStateMachine:
                 notes=notes
             )
 
-            return locked_order
+        # Emit WebSocket event after successful DB transaction
+        cls.emit_update(locked_order)
+        return locked_order
+
+    @classmethod
+    def emit_update(cls, order: Order):
+        channel_layer = get_channel_layer()
+        if not channel_layer:
+            return
+
+        payload = {
+            'order_id': order.id,
+            'state': order.state,
+            'store_id': order.store_id
+        }
+
+        # Broadcast to store-specific group
+        async_to_sync(channel_layer.group_send)(
+            f'store_{order.store_id}_orders',
+            {
+                'type': 'order_update',
+                'message': payload
+            }
+        )
+        
+        # Broadcast to global group
+        async_to_sync(channel_layer.group_send)(
+            'global_orders',
+            {
+                'type': 'order_update',
+                'message': payload
+            }
+        )

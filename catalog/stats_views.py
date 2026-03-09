@@ -38,7 +38,7 @@ class BillboardStatsViewSet(viewsets.ViewSet):
 
         # 3. Trending Items (by order item count in completed orders)
         # Assuming simple top products logic based entirely on products linked to finished orders
-        trending_products = Product.objects.filter(is_active=True).annotate(
+        trending_products = Product.objects.select_related('store').filter(is_active=True).annotate(
             times_ordered=Sum('order_items__quantity', filter=models.Q(order_items__order__state=Order.State.COMPLETED))
         ).order_by('-times_ordered')[:4]
 

@@ -80,3 +80,14 @@ class CurrencyConfig(models.Model):
         # amount in base = amount * from_rate, then divide by to_rate
         base_amount = amount * from_curr.rate_to_base
         return base_amount / to_curr.rate_to_base
+
+class Notice(models.Model):
+    title = models.CharField(max_length=255)
+    message = models.TextField()
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, null=True, blank=True, related_name='notices', help_text="If null, it's a global notice.")
+    target_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True, related_name='notices_received', help_text="If null, goes to all staff in the store/global.")
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notices_sent')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Notice: {self.title}"

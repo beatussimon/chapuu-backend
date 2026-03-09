@@ -11,6 +11,7 @@ class Order(models.Model):
         QUEUED = 'QUEUED', 'Queued'
         PREPARING = 'PREPARING', 'Preparing'
         READY = 'READY', 'Ready'
+        OUT_FOR_DELIVERY = 'OUT_FOR_DELIVERY', 'Out for Delivery'
         COMPLETED = 'COMPLETED', 'Completed'
         CANCELLED = 'CANCELLED', 'Cancelled'
         EXPIRED = 'EXPIRED', 'Expired'
@@ -35,6 +36,8 @@ class Order(models.Model):
     delivery_location = models.TextField(blank=True, null=True)
 
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
+    delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0.0, help_text="Delivery or pickup fee set by seller/accountant.")
+
     
     payment_message = models.TextField(blank=True, null=True, help_text="User's text transaction slip or confirmation ID.")
     payment_receipt = models.ImageField(upload_to='receipts/', blank=True, null=True, help_text="User's uploaded receipt image.")

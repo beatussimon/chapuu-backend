@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table
+from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice
 
 class KitchenSettingsSerializer(serializers.ModelSerializer):
     class Meta:
@@ -37,3 +37,12 @@ class CurrencyConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = CurrencyConfig
         fields = ['id', 'code', 'name', 'symbol', 'rate_to_base', 'is_default', 'is_active']
+
+class NoticeSerializer(serializers.ModelSerializer):
+    created_by_username = serializers.ReadOnlyField(source='created_by.username')
+    
+    class Meta:
+        model = Notice
+        fields = ['id', 'title', 'message', 'store', 'target_user', 'created_by', 'created_by_username', 'created_at']
+        read_only_fields = ['created_by']
+

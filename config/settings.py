@@ -46,22 +46,17 @@ load_dotenv(dotenv_path=env_path, override=True)
 SECRET_KEY = os.environ.get('SECRET_KEY', 'default-unsafe-dev-key-change-it')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
+DEBUG = os.environ.get('DEBUG', 'True').lower() in ('true', '1', 't')
 
-# Parse allowed hosts from comma-separated string
-allowed_hosts_env = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1')
-ALLOWED_HOSTS = [host.strip() for host in allowed_hosts_env.split(',') if host.strip()]
-
-
-
-
+# ALLOW ALL HOSTS FOR DEV
+ALLOWED_HOSTS = ['*']
 
 # Application definition
 
 
 
 INSTALLED_APPS = [
-
+    'daphne',
     'django.contrib.admin',
 
     'django.contrib.auth',
@@ -75,7 +70,9 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     'rest_framework',
+    'rest_framework_simplejwt',
     'corsheaders',
+    'channels',
 
     
 
@@ -273,7 +270,7 @@ import os
 
 # Celery settings
 
-CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0")
 
 CELERY_ACCEPT_CONTENT = ["json"]
 
@@ -316,7 +313,21 @@ SIMPLE_JWT = {
 
 
 
-CORS_ALLOW_ALL_ORIGINS = False
-frontend_urls_env = os.environ.get("FRONTEND_URL", "http://localhost:5174,http://localhost:5175")
-CORS_ALLOWED_ORIGINS = [url.strip() for url in frontend_urls_env.split(',') if url.strip()]
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+ASGI_APPLICATION = "config.asgi.application"
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [os.environ.get("REDIS_URL", "redis://127.0.0.1:6379/1")],
+        },
+    },
+}
 
