@@ -8,16 +8,48 @@ from stores.services import KitchenEngine
 from reviews.models import StoreReview
 from reviews.serializers import StoreReviewSerializer
 
+class IsSellerOrAdminForWriteStore(permissions.BasePermission):
+    def has_permission(self, request, view):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return request.user.is_authenticated and request.user.role in ['SELLER', 'ADMIN']
+
 class StorePaymentMethodViewSet(viewsets.ModelViewSet):
     serializer_class = StorePaymentMethodSerializer
-    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    permission_classes = [IsSellerOrAdminForWriteStore]
 
     def get_queryset(self):
-        queryset = StorePaymentMethod.objects.filter(is_active=True)
+        # Allow sellers/admins to see all payment methods, public to see only active
+        user = self.request.user
+        if user.is_authenticated and user.role in ['SELLER', 'ADMIN']:
+            queryset = StorePaymentMethod.objects.all()
+        else:
+            queryset = StorePaymentMethod.objects.filter(is_active=True)
+            
         store_id = self.request.query_params.get('store', None)
         if store_id:
             queryset = queryset.filter(store_id=store_id)
         return queryset
+
+    def perform_create(self, serializer):
+        store = serializer.validated_data.get('store')
+        if self.request.user.role != 'ADMIN' and store.owner != self.request.user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only add payment methods to your own store.")
+        serializer.save()
+
+    def perform_update(self, serializer):
+        payment_method = self.get_object()
+        if self.request.user.role != 'ADMIN' and payment_method.store.owner != self.request.user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only modify payment methods for your own store.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        if self.request.user.role != 'ADMIN' and instance.store.owner != self.request.user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only delete payment methods for your own store.")
+        instance.delete()
 
 class NoticeViewSet(viewsets.ModelViewSet):
     serializer_class = NoticeSerializer
