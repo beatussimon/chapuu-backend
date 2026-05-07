@@ -4,6 +4,7 @@ from catalog.models import Product, Category, InventoryStock, Ingredient, Recipe
 class ProductSerializer(serializers.ModelSerializer):
     category_name = serializers.SerializerMethodField()
     image_url = serializers.SerializerMethodField()
+    image2_url = serializers.SerializerMethodField()
     stock_quantity = serializers.SerializerMethodField()
     computed_is_available = serializers.SerializerMethodField()
 
@@ -11,7 +12,7 @@ class ProductSerializer(serializers.ModelSerializer):
         model = Product
         fields = [
             'id', 'store', 'category', 'category_name', 'name', 'description',
-            'price', 'image', 'image_url', 'requires_inventory', 'requires_kitchen',
+            'price', 'image', 'image_url', 'image2', 'image2_url', 'requires_inventory', 'requires_kitchen',
             'estimated_prep_time_minutes', 'is_active', 'created_at',
             'stock_quantity', 'computed_is_available'
         ]
@@ -27,6 +28,14 @@ class ProductSerializer(serializers.ModelSerializer):
             if request:
                 return request.build_absolute_uri(obj.image.url)
             return obj.image.url
+        return None
+
+    def get_image2_url(self, obj):
+        if getattr(obj, 'image2', None):
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.image2.url)
+            return obj.image2.url
         return None
 
     def get_stock_quantity(self, obj):

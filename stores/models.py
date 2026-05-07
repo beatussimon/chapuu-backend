@@ -27,6 +27,7 @@ class StorePaymentMethod(models.Model):
     account_name = models.CharField(max_length=255, blank=True, null=True)
     account_number = models.CharField(max_length=100, blank=True, null=True)
     instructions = models.TextField(blank=True, null=True, help_text="e.g. Send to Till Number 123456")
+    image = models.ImageField(upload_to='payment_methods/', null=True, blank=True, help_text="Network logo/image")
     is_active = models.BooleanField(default=True)
 
     def __str__(self):

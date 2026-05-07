@@ -1,11 +1,16 @@
 from django.contrib import admin
-from stores.models import Store, KitchenSettings, Table, Advertisement, CurrencyConfig
+from stores.models import Store, KitchenSettings, Table, Advertisement, CurrencyConfig, StorePaymentMethod
+
+class StorePaymentMethodInline(admin.TabularInline):
+    model = StorePaymentMethod
+    extra = 1
 
 @admin.register(Store)
 class StoreAdmin(admin.ModelAdmin):
     list_display = ('name', 'owner', 'store_type', 'is_active', 'created_at')
     list_filter = ('store_type', 'is_active')
     search_fields = ('name', 'owner__username')
+    inlines = [StorePaymentMethodInline]
 
 @admin.register(KitchenSettings)
 class KitchenSettingsAdmin(admin.ModelAdmin):
