@@ -56,6 +56,19 @@ class OrderSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         items_data = validated_data.pop('items')
         
+        # Validate stock before creating the order
+        from catalog.models import InventoryStock
+        for item_data in items_data:
+            product = item_data['product']
+            quantity = item_data['quantity']
+            if product.requires_inventory:
+                try:
+                    stock = InventoryStock.objects.get(product=product)
+                    if stock.quantity < quantity:
+                        raise serializers.ValidationError(f"Only {stock.quantity} available for {product.name}.")
+                except InventoryStock.DoesNotExist:
+                    raise serializers.ValidationError(f"Product {product.name} is out of stock.")
+        
         # Calculate total amount
         total = sum(item['unit_price'] * item['quantity'] for item in items_data)
         
@@ -63,6 +76,14 @@ class OrderSerializer(serializers.ModelSerializer):
         
         for item_data in items_data:
             OrderItem.objects.create(order=order, **item_data)
+            product = item_data['product']
+            if product.requires_inventory:
+                try:
+                    stock = InventoryStock.objects.get(product=product)
+                    stock.quantity -= item_data['quantity']
+                    stock.save()
+                except InventoryStock.DoesNotExist:
+                    pass
             
         Payment.objects.create(
             order=order,
