@@ -47,8 +47,19 @@ class InventoryStock(models.Model):
     quantity = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
     low_stock_threshold = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
 
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    models.Q(product__isnull=False, ingredient__isnull=True) |
+                    models.Q(product__isnull=True, ingredient__isnull=False)
+                ),
+                name='stock_must_belong_to_product_or_ingredient'
+            )
+        ]
+
     def __str__(self):
-        target = self.product.name if self.product else self.ingredient.name
+        target = self.product.name if self.product_id else (self.ingredient.name if self.ingredient_id else "ORPHAN")
         return f"Stock for {target}: {self.quantity}"
 
 class RecipeIngredient(models.Model):

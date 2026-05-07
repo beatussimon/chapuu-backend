@@ -27,7 +27,7 @@ from users.views import UserViewSet, CustomerRegistrationView, CurrentUserView
 from orders.views import OrderViewSet
 from catalog.stats_views import BillboardStatsViewSet
 from catalog.analytics_seller_views import SellerAnalyticsViewSet
-from stores.views import StoreViewSet, AdvertisementViewSet, CurrencyConfigViewSet, TableViewSet, NoticeViewSet
+from stores.views import StoreViewSet, AdvertisementViewSet, CurrencyConfigViewSet, TableViewSet, NoticeViewSet, StorePaymentMethodViewSet
 from reservations.views import ReservationViewSet, TableSessionViewSet
 from payments.views import ZenopayWebhookView
 from reviews.views import StoreReviewViewSet
@@ -52,6 +52,7 @@ router.register(r'analytics/seller', SellerAnalyticsViewSet, basename='seller-an
 router.register(r'currencies', CurrencyConfigViewSet, basename='currency')
 router.register(r'tables', TableViewSet, basename='table')
 router.register(r'notices', NoticeViewSet, basename='notice')
+router.register(r'payment-methods', StorePaymentMethodViewSet, basename='payment-method')
 
 urlpatterns = [
     path('admin/', admin.site.urls),

@@ -2,11 +2,22 @@ from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db.models import Q
-from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice
-from stores.serializers import StoreSerializer, KitchenSettingsSerializer, AdvertisementSerializer, CurrencyConfigSerializer, TableSerializer, NoticeSerializer
+from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod
+from stores.serializers import StoreSerializer, KitchenSettingsSerializer, AdvertisementSerializer, CurrencyConfigSerializer, TableSerializer, NoticeSerializer, StorePaymentMethodSerializer
 from stores.services import KitchenEngine
 from reviews.models import StoreReview
 from reviews.serializers import StoreReviewSerializer
+
+class StorePaymentMethodViewSet(viewsets.ModelViewSet):
+    serializer_class = StorePaymentMethodSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get_queryset(self):
+        queryset = StorePaymentMethod.objects.filter(is_active=True)
+        store_id = self.request.query_params.get('store', None)
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+        return queryset
 
 class NoticeViewSet(viewsets.ModelViewSet):
     serializer_class = NoticeSerializer
@@ -83,7 +94,7 @@ class StoreViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
     def my_store(self, request):
         user = request.user
-        if user.role not in ['SELLER', 'ADMIN', 'CHEF']:
+        if user.role not in ['SELLER', 'ADMIN', 'CHEF', 'ACCOUNTANT', 'DELIVERY']:
             return Response({"error": f"Unauthorized. Your role is {user.role}"}, status=403)
             
         store = None
@@ -94,6 +105,10 @@ class StoreViewSet(viewsets.ModelViewSet):
             
         # 2. Try to find store by employment (Chefs/Staff)
         if not store and user.employed_store:
+            store = user.employed_store
+
+        # 3. Try to find store for ACCOUNTANT/DELIVERY
+        if not store and user.role in ['ACCOUNTANT', 'DELIVERY'] and user.employed_store:
             store = user.employed_store
             
         # 3. Fallback for ADMIN (See any active store to avoid dashboard crash)
@@ -127,6 +142,16 @@ class StoreViewSet(viewsets.ModelViewSet):
         q_size = KitchenEngine.get_queue_size(store)
         return Response({"queue_size": q_size})
         
+    @action(detail=True, methods=['patch'])
+    def toggle_status(self, request, pk=None):
+        store = self.get_object()
+        if request.user != store.owner and request.user.role != 'ADMIN':
+            return Response({"error": "unauthorized"}, status=403)
+            
+        store.is_open = not store.is_open
+        store.save(update_fields=['is_open'])
+        return Response({"is_open": store.is_open})
+
     @action(detail=True, methods=['patch'])
     def toggle_kitchen_pause(self, request, pk=None):
         store = self.get_object()

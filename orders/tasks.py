@@ -15,7 +15,7 @@ def expire_unpaid_orders():
     and transitions them to EXPIRED.
     """
     expiry_time = timezone.now() - timedelta(minutes=15)
-    expired_orders = Order.objects.filter(state=Order.State.AWAITING_PAYMENT, updated_at__lte=expiry_time)
+    expired_orders = Order.objects.filter(state=Order.State.AWAITING_PAYMENT, created_at__lte=expiry_time)
 
     for order in expired_orders:
         try:

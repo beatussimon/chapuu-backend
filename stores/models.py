@@ -14,11 +14,23 @@ class Store(models.Model):
     contact_email = models.EmailField(blank=True, null=True)
     image = models.ImageField(upload_to='stores/', null=True, blank=True)
     is_active = models.BooleanField(default=True)
+    is_open = models.BooleanField(default=True, help_text="Store open/closed status toggle.")
     base_delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
         return f"{self.name} ({self.store_type})"
+
+class StorePaymentMethod(models.Model):
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='payment_methods')
+    provider = models.CharField(max_length=100, help_text="e.g. M-Pesa, Bank Transfer, Cash")
+    account_name = models.CharField(max_length=255, blank=True, null=True)
+    account_number = models.CharField(max_length=100, blank=True, null=True)
+    instructions = models.TextField(blank=True, null=True, help_text="e.g. Send to Till Number 123456")
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"{self.provider} for {self.store.name}"
 
 class KitchenSettings(models.Model):
     store = models.OneToOneField(Store, on_delete=models.CASCADE, related_name='kitchen_settings')

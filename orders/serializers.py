@@ -70,12 +70,6 @@ class OrderSerializer(serializers.ModelSerializer):
             status=Payment.Status.PENDING
         )
             
-        # Loyalty Points (1 point per $1 spent)
-        if order.customer:
-            points_earned = int(total)
-            order.customer.loyalty_points += points_earned
-            order.customer.save(update_fields=['loyalty_points'])
-            
         # If instantly paid (e.g. walk-in POS), enqueue it
         if order.state in [order.State.PAID, order.State.QUEUED]:
             from stores.services import KitchenEngine

@@ -44,7 +44,7 @@ class ZenopayWebhookView(APIView):
         # 2. Idempotency Check
         with transaction.atomic():
             try:
-                payment = Payment.objects.get(order_id=order_id)
+                payment = Payment.objects.select_related('order__store', 'reservation').get(order_id=order_id)
             except Payment.DoesNotExist:
                 logger.error(f"Payment record not found for webhook order {order_id}")
                 return Response({"error": "Payment not found"}, status=status.HTTP_404_NOT_FOUND)
@@ -97,9 +97,11 @@ class ZenopayWebhookView(APIView):
         if getattr(settings, 'DEBUG', False) and secret == 'test_secret': # Allows unauthenticated local testing
             return True
             
-        if not signature:
+        if not secret or not signature:
             return False
             
-        expected_mac = hmac.new(secret.encode(), payload_body, hashlib.sha256).hexdigest()
+        expected_mac = hmac.new(secret.encode('utf-8'), payload_body, hashlib.sha256).hexdigest()
         return hmac.compare_digest(expected_mac, signature)
+
+
 

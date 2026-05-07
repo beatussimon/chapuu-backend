@@ -1,13 +1,19 @@
 from rest_framework import serializers
-from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice
+from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod
 
 class KitchenSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = KitchenSettings
         fields = '__all__'
 
+class StorePaymentMethodSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StorePaymentMethod
+        fields = '__all__'
+
 class StoreSerializer(serializers.ModelSerializer):
     kitchen_settings = KitchenSettingsSerializer(read_only=True)
+    payment_methods = StorePaymentMethodSerializer(many=True, read_only=True)
     image_url = serializers.SerializerMethodField()
     
     class Meta:

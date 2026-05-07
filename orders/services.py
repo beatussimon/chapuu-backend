@@ -39,6 +39,12 @@ class OrderStateMachine:
             locked_order.state = new_state
             locked_order.save(update_fields=['state', 'updated_at'])
 
+            if new_state == Order.State.PAID and locked_order.customer:
+                from django.db.models import F
+                locked_order.customer.__class__.objects.filter(pk=locked_order.customer_id).update(
+                    loyalty_points=F('loyalty_points') + int(locked_order.total_amount)
+                )
+
             OrderEventLog.objects.create(
                 order=locked_order,
                 previous_state=previous_state,
@@ -74,6 +80,15 @@ class OrderStateMachine:
         # Broadcast to global group
         async_to_sync(channel_layer.group_send)(
             'global_orders',
+            {
+                'type': 'order_update',
+                'message': payload
+            }
+        )
+
+        # Broadcast to per-order group
+        async_to_sync(channel_layer.group_send)(
+            f'order_{order.id}',
             {
                 'type': 'order_update',
                 'message': payload

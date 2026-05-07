@@ -45,6 +45,18 @@ class ProductViewSet(viewsets.ModelViewSet):
             
         return queryset
 
+    def perform_update(self, serializer):
+        product = serializer.save()
+        initial_stock = self.request.data.get('initial_stock')
+        if product.requires_inventory and initial_stock is not None:
+            try:
+                stock_qty = Decimal(str(initial_stock))
+                stock, created = InventoryStock.objects.get_or_create(product=product)
+                stock.quantity = stock_qty
+                stock.save()
+            except (ValueError, TypeError, InvalidOperation):
+                pass
+
     def destroy(self, request, *args, **kwargs):
         """Soft-delete: mark product inactive instead of hard-deleting.
         This avoids 500 errors from PROTECT foreign keys on OrderItem."""

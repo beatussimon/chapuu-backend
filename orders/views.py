@@ -4,6 +4,9 @@ from rest_framework.response import Response
 from orders.models import Order
 from orders.serializers import OrderSerializer
 from orders.services import OrderStateMachine
+import logging
+
+logger = logging.getLogger(__name__)
 
 class OrderViewSet(viewsets.ModelViewSet):
     """
