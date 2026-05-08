@@ -8,7 +8,8 @@ python-dotenv
 pytest
 pytest-django
 djangorestframework-simplejwt
-uvicorn==0.46.0
+uvicorn==0.30.1
+websockets==12.0
 amqp==5.3.1
 asgiref==3.11.1
 billiard==4.2.4
