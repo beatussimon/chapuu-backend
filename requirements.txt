@@ -8,9 +8,6 @@ python-dotenv
 pytest
 pytest-django
 djangorestframework-simplejwt
-daphne==4.2.1
-channels==4.3.2
-channels-redis==4.3.0
 uvicorn==0.46.0
 amqp==5.3.1
 asgiref==3.11.1
@@ -50,4 +47,3 @@ vine==5.1.0
 wcwidth==0.6.0
 pillow
 whitenoise==6.8.2
-gunicorn==23.0.0
