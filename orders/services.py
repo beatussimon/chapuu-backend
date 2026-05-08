@@ -93,6 +93,3 @@ class OrderStateMachine:
                 'message': payload
             }
         )
-
-    @classmethod
-
