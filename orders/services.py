@@ -85,7 +85,6 @@ class OrderStateMachine:
                 'message': payload
             }
         )
-
         # Broadcast to per-order group
         async_to_sync(channel_layer.group_send)(
             f'order_{order.id}',
@@ -94,3 +93,6 @@ class OrderStateMachine:
                 'message': payload
             }
         )
+
+    @classmethod
+

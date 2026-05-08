@@ -33,6 +33,25 @@ from payments.views import ZenopayWebhookView
 from reviews.views import StoreReviewViewSet
 from django.conf import settings
 from django.conf.urls.static import static
+from django.http import JsonResponse
+from django.db import connection
+from users.throttles import LoginRateThrottle
+
+def health_check(request):
+    db_ok = True
+    redis_ok = True
+    try:
+        connection.ensure_connection()
+    except Exception:
+        db_ok = False
+    try:
+        from django.core.cache import cache
+        cache.set('health_ping', 'pong', 10)
+        redis_ok = cache.get('health_ping') == 'pong'
+    except Exception:
+        redis_ok = False
+    status_code = 200 if db_ok and redis_ok else 503
+    return JsonResponse({'status': 'ok' if status_code == 200 else 'degraded', 'db': db_ok, 'redis': redis_ok}, status=status_code)
 
 router = DefaultRouter()
 router.register(r'products', ProductViewSet, basename='product')
@@ -55,11 +74,12 @@ router.register(r'notices', NoticeViewSet, basename='notice')
 router.register(r'payment-methods', StorePaymentMethodViewSet, basename='payment-method')
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path(settings.ADMIN_URL, admin.site.urls),
+    path('api/token/', TokenObtainPairView.as_view(throttle_classes=[LoginRateThrottle]), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/register/', CustomerRegistrationView.as_view(), name='api_register'),
     path('api/auth/users/me/', CurrentUserView.as_view(), name='current_user'),
+    path('api/health/', health_check, name='health'),
     path('api/', include(router.urls)),
     path('api/webhook/zenopay/', ZenopayWebhookView.as_view(), name='zenopay-webhook'),
 ]
