@@ -7,9 +7,19 @@ class KitchenSettingsSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class StorePaymentMethodSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
     class Meta:
         model = StorePaymentMethod
         fields = '__all__'
+
+    def get_image_url(self, obj):
+        if obj.image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return None
 
 class StoreSerializer(serializers.ModelSerializer):
     kitchen_settings = KitchenSettingsSerializer(read_only=True)
@@ -18,7 +28,11 @@ class StoreSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Store
-        fields = '__all__'
+        fields = [
+            'id', 'owner', 'name', 'store_type', 'location', 'contact_phone', 
+            'contact_email', 'image', 'image_url', 'is_active', 'is_open', 
+            'base_delivery_fee', 'created_at', 'kitchen_settings', 'payment_methods'
+        ]
 
     def get_image_url(self, obj):
         if obj.image:

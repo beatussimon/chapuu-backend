@@ -110,7 +110,7 @@ class AdvertisementViewSet(viewsets.ModelViewSet):
         return queryset
 
 class StoreViewSet(viewsets.ModelViewSet):
-    queryset = Store.objects.filter(is_active=True)
+    queryset = Store.objects.filter(is_active=True).prefetch_related('payment_methods', 'kitchen_settings')
     serializer_class = StoreSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     
