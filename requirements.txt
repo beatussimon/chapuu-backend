@@ -1,13 +1,17 @@
 Django>=5.0,<6.0
 djangorestframework
-dj-database-url==2.3.0
+dj-database-url==3.1.2
 celery
 redis
-psycopg2-binary; sys_platform != 'win32'
+psycopg2-binary==2.9.11; sys_platform != 'win32'
 python-dotenv
 pytest
 pytest-django
 djangorestframework-simplejwt
+daphne==4.2.1
+channels==4.3.2
+channels-redis==4.3.0
+uvicorn==0.46.0
 amqp==5.3.1
 asgiref==3.11.1
 billiard==4.2.4
@@ -19,7 +23,6 @@ click-didyoumean==0.3.1
 click-plugins==1.1.1.2
 click-repl==0.3.0
 colorama==0.4.6
-dj-database-url==2.3.0
 Django==5.2.11
 django-cors-headers==4.9.0
 djangorestframework==3.16.1
