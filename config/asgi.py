@@ -7,15 +7,18 @@ django.setup()
 
 from channels.routing import ProtocolTypeRouter, URLRouter
 from channels.auth import AuthMiddlewareStack
+from channels.security.websocket import AllowedHostsOriginValidator
 import config.routing
 from config.middleware import JWTAuthMiddleware
 
 application = ProtocolTypeRouter({
     "http": get_asgi_application(),
-    "websocket": AuthMiddlewareStack(
-        JWTAuthMiddleware(
-            URLRouter(
-                config.routing.websocket_urlpatterns
+    "websocket": AllowedHostsOriginValidator(
+        AuthMiddlewareStack(
+            JWTAuthMiddleware(
+                URLRouter(
+                    config.routing.websocket_urlpatterns
+                )
             )
         )
     ),
