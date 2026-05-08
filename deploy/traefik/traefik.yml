@@ -3,16 +3,11 @@ api:
 
 log:
   level: WARN
-  filePath: /var/log/traefik/traefik.log
 
 accessLog:
-  filePath: /var/log/traefik/access.log
   bufferingSize: 100
 
 providers:
-  docker:
-    exposedByDefault: false
-    network: chapuu_network
   file:
     filename: /etc/traefik/dynamic.yml
     watch: true

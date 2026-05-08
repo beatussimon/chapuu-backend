@@ -1,20 +1,33 @@
 http:
+  routers:
+    backend:
+      rule: "PathPrefix(`/api`) || PathPrefix(`/admin`) || PathPrefix(`/static`) || PathPrefix(`/media`) || PathPrefix(`/ws`)"
+      service: backend
+      entryPoints:
+        - web
+      middlewares:
+        - proxy-headers
+
+    frontend:
+      rule: "PathPrefix(`/`)"
+      service: frontend
+      entryPoints:
+        - web
+      priority: 1
+
+  services:
+    backend:
+      loadBalancer:
+        servers:
+          - url: "http://backend:8000"
+    frontend:
+      loadBalancer:
+        servers:
+          - url: "http://frontend:80"
+
   middlewares:
-    security-headers:
+    proxy-headers:
       headers:
-        frameDeny: true
-        contentTypeNosniff: true
-        browserXssFilter: true
-        referrerPolicy: "strict-origin-when-cross-origin"
-        stsSeconds: 31536000
-        stsIncludeSubdomains: true
-        stsPreload: true
-        customResponseHeaders:
-          Server: ""
-          X-Powered-By: ""
-    
-    api-rate-limit:
-      rateLimit:
-        average: 100
-        burst: 50
-        period: 1m
+        customRequestHeaders:
+          X-Forwarded-Proto: "http"
+          X-Forwarded-Host: "13.127.242.204"
