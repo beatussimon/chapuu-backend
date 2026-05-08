@@ -97,3 +97,15 @@ class OrderSerializer(serializers.ModelSerializer):
             KitchenEngine.enqueue_order(order)
 
         return order
+
+class PublicOrderItemSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.name', read_only=True)
+    class Meta:
+        model = OrderItem
+        fields = ['product_name', 'quantity']
+
+class PublicOrderSerializer(serializers.ModelSerializer):
+    items = PublicOrderItemSerializer(many=True, read_only=True)
+    class Meta:
+        model = Order
+        fields = ['id', 'state', 'fulfillment_mode', 'created_at', 'items']

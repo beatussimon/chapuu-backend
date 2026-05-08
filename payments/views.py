@@ -100,7 +100,7 @@ class ZenopayWebhookView(APIView):
         if not secret or not signature:
             return False
             
-        expected_mac = hmac.new(secret.encode('utf-8'), payload_body, hashlib.sha256).hexdigest()
+        expected_mac = hmac.new(secret.encode('utf-8'), msg=payload_body, digestmod=hashlib.sha256).hexdigest()
         return hmac.compare_digest(expected_mac, signature)
 
 

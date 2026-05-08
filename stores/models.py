@@ -85,14 +85,28 @@ class CurrencyConfig(models.Model):
 
     @classmethod
     def convert(cls, amount, from_code, to_code):
-        """Convert amount between two currencies via the base (TZS)."""
+        """Convert amount between two currencies via the base (TZS) with caching."""
         if from_code == to_code:
             return amount
-        from_curr = cls.objects.get(code=from_code)
-        to_curr = cls.objects.get(code=to_code)
+            
+        from django.core.cache import cache
+        
+        # Cache both currency rates for 1 hour
+        from_rate = cache.get(f'currency_rate_{from_code}')
+        if from_rate is None:
+            from_curr = cls.objects.get(code=from_code)
+            from_rate = from_curr.rate_to_base
+            cache.set(f'currency_rate_{from_code}', from_rate, 3600)
+            
+        to_rate = cache.get(f'currency_rate_{to_code}')
+        if to_rate is None:
+            to_curr = cls.objects.get(code=to_code)
+            to_rate = to_curr.rate_to_base
+            cache.set(f'currency_rate_{to_code}', to_rate, 3600)
+
         # amount in base = amount * from_rate, then divide by to_rate
-        base_amount = amount * from_curr.rate_to_base
-        return base_amount / to_curr.rate_to_base
+        base_amount = amount * from_rate
+        return base_amount / to_rate
 
 class Notice(models.Model):
     title = models.CharField(max_length=255)

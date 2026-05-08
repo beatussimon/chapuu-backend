@@ -23,7 +23,11 @@ class OrderViewSet(viewsets.ModelViewSet):
         
         # If a specific store is requested (Public TV Display mode)
         if store_id:
-            return Order.objects.filter(store_id=store_id)
+            qs = Order.objects.filter(store_id=store_id)
+            if not user or not user.is_authenticated:
+                # Return only non-PII fields for anonymous TV displays
+                return qs.only('id', 'state', 'fulfillment_mode', 'created_at')
+            return qs
 
         # Safety check for anonymous users
         if not user or not user.is_authenticated:
@@ -86,6 +90,12 @@ class OrderViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+    def get_serializer_class(self):
+        if self.request.query_params.get('store') and not self.request.user.is_authenticated:
+            from orders.serializers import PublicOrderSerializer
+            return PublicOrderSerializer
+        return OrderSerializer
+
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def advance_state(self, request, pk=None):
         order = self.get_object()
@@ -113,21 +123,21 @@ class OrderViewSet(viewsets.ModelViewSet):
                 order.total_amount = float(order.total_amount) + float(order.delivery_fee)
                 order.save(update_fields=['delivery_fee', 'total_amount'])
 
-            OrderStateMachine.transition_order(order, new_state, notes="Manual state advance via API")
+            updated_order = OrderStateMachine.transition_order(order, new_state, notes="Manual state advance via API")
             
             # For SHOP stores: when payment is verified (PAID), skip kitchen → go straight to READY
             if new_state in [Order.State.PAID, Order.State.QUEUED]:
-                is_shop = order.store.store_type == 'SHOP'
+                is_shop = updated_order.store.store_type == 'SHOP'
                 if is_shop:
                     # Shop orders skip kitchen entirely: PAID → READY
-                    if order.state == Order.State.PAID:
-                        OrderStateMachine.transition_order(order, Order.State.READY, notes="Shop order — kitchen skipped.")
+                    if updated_order.state == Order.State.PAID:
+                        updated_order = OrderStateMachine.transition_order(updated_order, Order.State.READY, notes="Shop order — kitchen skipped.")
                 else:
                     # Restaurant orders go through kitchen
                     from stores.services import KitchenEngine
-                    KitchenEngine.enqueue_order(order)
+                    KitchenEngine.enqueue_order(updated_order)
                 
-            return Response({"status": "State advanced", "order_state": order.state})
+            return Response({"status": "State advanced", "order_state": updated_order.state})
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
