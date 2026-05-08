@@ -14,7 +14,8 @@ def get_user_from_token(token_string):
         validated_token = UntypedToken(token_string)
         user = JWTAuthentication().get_user(validated_token)
         return user
-    except (InvalidToken, TokenError, Exception):
+    except Exception as e:
+        print(f"WS Auth Error: {e}")
         return AnonymousUser()
 
 class JWTAuthMiddleware:
