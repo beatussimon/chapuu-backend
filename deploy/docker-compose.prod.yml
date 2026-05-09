@@ -8,13 +8,6 @@ services:
     command:
       - "--api.dashboard=false"
       - "--entrypoints.web.address=:80"
-      - "--entrypoints.websecure.address=:443"
-      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
-      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
-      - "--entrypoints.web.http.redirections.entrypoint.permanent=true"
-      - "--certificatesresolvers.letsencrypt.acme.email=${TRAEFIK_ACME_EMAIL}"
-      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
-      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
       - "--providers.docker.network=chapuu_network"
@@ -24,12 +17,10 @@ services:
       - "--accesslog=true"
     ports:
       - "80:80"
-      - "443:443"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
       - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
-      - ./traefik/letsencrypt:/letsencrypt
       - traefik_logs:/var/log/traefik
     networks:
       - chapuu_network
@@ -95,21 +86,19 @@ services:
       - chapuu_network
     labels:
       - "traefik.enable=true"
-      # HTTP Router
-      - "traefik.http.routers.backend.rule=Host(`${API_DOMAIN}`)"
-      - "traefik.http.routers.backend.entrypoints=websecure"
-      - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.backend.middlewares=security-headers@file,api-rate-limit@file"
-      # WebSocket Router
-      - "traefik.http.routers.backend-ws.rule=Host(`${API_DOMAIN}`) && PathPrefix(`/ws`)"
-      - "traefik.http.routers.backend-ws.entrypoints=websecure"
-      - "traefik.http.routers.backend-ws.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.backend-ws.priority=10"
-      - "traefik.http.routers.backend-ws.service=backend"
-      # Service definition
+      # HTTP API + Admin + Static + Media
+      - "traefik.http.routers.backend.rule=PathPrefix(`/api`) || PathPrefix(`/admin`) || PathPrefix(`/static`) || PathPrefix(`/media`)"
+      - "traefik.http.routers.backend.entrypoints=web"
+      - "traefik.http.routers.backend.priority=10"
+      - "traefik.http.routers.backend.middlewares=api-rate-limit@file"
       - "traefik.http.services.backend.loadbalancer.server.port=8000"
       - "traefik.http.services.backend.loadbalancer.healthcheck.path=/api/health/"
       - "traefik.http.services.backend.loadbalancer.healthcheck.interval=30s"
+      # WebSocket — highest priority so it matches before generic PathPrefix rules
+      - "traefik.http.routers.backend-ws.rule=PathPrefix(`/ws`)"
+      - "traefik.http.routers.backend-ws.entrypoints=web"
+      - "traefik.http.routers.backend-ws.priority=20"
+      - "traefik.http.routers.backend-ws.service=backend"
     logging:
       driver: json-file
       options: { max-size: "100m", max-file: "5" }
@@ -175,10 +164,9 @@ services:
       start_period: 10s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.static.rule=Host(`${API_DOMAIN}`) && (PathPrefix(`/media`) || PathPrefix(`/static`))"
-      - "traefik.http.routers.static.entrypoints=websecure"
-      - "traefik.http.routers.static.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.static.priority=20"
+      - "traefik.http.routers.static.rule=PathPrefix(`/media`) || PathPrefix(`/static`)"
+      - "traefik.http.routers.static.entrypoints=web"
+      - "traefik.http.routers.static.priority=30"
       - "traefik.http.services.static.loadbalancer.server.port=80"
     logging:
       driver: json-file
@@ -189,16 +177,15 @@ services:
       context: ../../chapuu-web-frontend
       dockerfile: Dockerfile.prod
       args:
-        VITE_BACKEND_URL: https://${API_DOMAIN}
+        VITE_BACKEND_URL: http://${TRAEFIK_DOMAIN:-localhost}
     restart: unless-stopped
     networks:
       - chapuu_network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=Host(`${TRAEFIK_DOMAIN}`)"
-      - "traefik.http.routers.frontend.entrypoints=websecure"
-      - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.frontend.middlewares=security-headers@file"
+      - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.frontend.entrypoints=web"
+      - "traefik.http.routers.frontend.priority=1"
       - "traefik.http.services.frontend.loadbalancer.server.port=80"
     logging:
       driver: json-file

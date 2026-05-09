@@ -50,10 +50,63 @@ class OrderViewSet(viewsets.ModelViewSet):
             return Order.objects.select_related('review').filter(customer=user)
 
     def perform_create(self, serializer):
-        # Auto-assign customer if not provided in payload
-        order = serializer.save(customer=self.request.user)
-        # Immediately kick it into payment holding state
-        OrderStateMachine.transition_order(order, Order.State.AWAITING_PAYMENT, notes="Order created. Awaiting payment.")
+        from payments.models import Payment
+        from stores.services import KitchenEngine
+        from django.core.exceptions import PermissionDenied
+
+        user = self.request.user
+        is_instant = serializer.validated_data.get('is_instant_payment', False)
+
+        # Only staff can mark an order as instant payment
+        STAFF_ROLES = ['SELLER', 'ADMIN', 'ACCOUNTANT', 'CHEF']
+        if is_instant and user.role not in STAFF_ROLES:
+            raise PermissionDenied("Only store staff can place instant payment (walk-in) orders.")
+
+        order = serializer.save(customer=user if user.is_authenticated else None)
+
+        if is_instant:
+            # ── WALK-IN / PAY-ON-SPOT FLOW ──────────────────────────────────
+            # Payment was collected in person. Skip AWAITING_PAYMENT entirely.
+            Payment.objects.create(
+                order=order,
+                amount=order.total_amount,
+                status=Payment.Status.WAIVED,
+                notes=f"Walk-in instant payment collected in person by {user.username}."
+            )
+            # Transition directly: CREATED → PAID
+            updated_order = OrderStateMachine.transition_order(
+                order, Order.State.PAID,
+                notes=f"Walk-in order — instant payment collected by {user.username}."
+            )
+            # Route to kitchen or mark ready based on store type
+            is_shop = updated_order.store.store_type == 'SHOP'
+            if is_shop:
+                # Shops skip kitchen: PAID → READY
+                OrderStateMachine.transition_order(
+                    updated_order, Order.State.READY,
+                    notes="Shop walk-in — instant ready for pickup."
+                )
+            else:
+                # Restaurants: enqueue to kitchen
+                KitchenEngine.enqueue_order(updated_order)
+                # Optionally auto-transition to QUEUED so kitchen sees it
+                OrderStateMachine.transition_order(
+                    updated_order, Order.State.QUEUED,
+                    notes="Walk-in order queued to kitchen."
+                )
+        else:
+            # ── STANDARD OFFLINE PAYMENT FLOW ───────────────────────────────
+            # Customer will pay offline (M-Pesa, bank transfer, cash deposit)
+            # and upload proof. Accountant verifies.
+            Payment.objects.create(
+                order=order,
+                amount=order.total_amount,
+                status=Payment.Status.PENDING
+            )
+            OrderStateMachine.transition_order(
+                order, Order.State.AWAITING_PAYMENT,
+                notes="Order placed. Awaiting offline payment."
+            )
 
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def cancel(self, request, pk=None):
@@ -116,6 +169,26 @@ class OrderViewSet(viewsets.ModelViewSet):
         if not allowed:
             return Response({"error": "Permission denied for this state transition"}, status=status.HTTP_403_FORBIDDEN)
             
+        # Walk-in paid orders can only be cancelled within 10 minutes of creation
+        if order.state == Order.State.PAID and new_state == Order.State.CANCELLED:
+            from django.utils import timezone
+            from datetime import timedelta
+            grace_period = timedelta(minutes=10)
+            if timezone.now() - order.created_at > grace_period:
+                return Response(
+                    {"error": "Cannot cancel a paid order after 10 minutes. Process a refund instead."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            # Also update the payment record to FAILED when cancelling
+            try:
+                payment = order.payments.filter(status__in=['PENDING', 'WAIVED']).first()
+                if payment:
+                    payment.status = Payment.Status.FAILED
+                    payment.notes = (payment.notes or '') + f"\nCancelled by {request.user.username}."
+                    payment.save(update_fields=['status', 'notes', 'updated_at'])
+            except Exception:
+                pass  # Don't block cancellation if payment update fails
+
         try:
             # Handle delivery fee if verifying payment
             if new_state == Order.State.PAID and 'delivery_fee' in request.data:

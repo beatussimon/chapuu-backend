@@ -6,12 +6,3 @@ log:
 
 accessLog:
   bufferingSize: 100
-
-entryPoints:
-  web:
-    address: ":80"
-
-providers:
-  file:
-    filename: /etc/traefik/dynamic.yml
-    watch: true

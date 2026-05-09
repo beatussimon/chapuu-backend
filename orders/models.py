@@ -46,6 +46,16 @@ class Order(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     scheduled_time = models.DateTimeField(null=True, blank=True)
 
+    is_instant_payment = models.BooleanField(
+        default=False,
+        help_text=(
+            "True when a walk-in customer pays in person at time of order. "
+            "Skips AWAITING_PAYMENT state and goes directly to PAID. "
+            "Can only be set by store staff (SELLER, ADMIN, ACCOUNTANT, CHEF). "
+            "Must NOT be used with DELIVERY fulfillment mode."
+        )
+    )
+
     def __str__(self):
         return f"Order #{self.id} for {self.store.name} - {self.state}"
 

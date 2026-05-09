@@ -32,7 +32,7 @@ class OrderSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'store', 'store_name', 'customer', 'customer_name', 'table', 'table_number', 'reservation', 'reservation_time', 'state', 
             'fulfillment_mode', 'customer_phone', 'delivery_location', 'total_amount', 'delivery_fee', 'created_at', 
-            'updated_at', 'scheduled_time', 'items', 'payment_message', 'payment_receipt', 'has_review', 'review_details'
+            'updated_at', 'scheduled_time', 'is_instant_payment', 'items', 'payment_message', 'payment_receipt', 'has_review', 'review_details'
         ]
         read_only_fields = ['state', 'total_amount', 'customer', 'created_at', 'updated_at']
 
@@ -53,10 +53,28 @@ class OrderSerializer(serializers.ModelSerializer):
             }
         return None
 
+    def validate(self, data):
+        is_instant = data.get('is_instant_payment', False)
+        fulfillment_mode = data.get('fulfillment_mode', '')
+        
+        if is_instant:
+            # Cannot pay on spot for a delivery order
+            if fulfillment_mode == Order.FulfillmentMode.DELIVERY:
+                raise serializers.ValidationError(
+                    "Instant payment is not valid for delivery orders. "
+                    "The customer has not received the goods yet."
+                )
+            # Delivery fee must be zero for instant non-delivery orders
+            if data.get('delivery_fee', 0) and float(data.get('delivery_fee', 0)) > 0:
+                raise serializers.ValidationError(
+                    "Delivery fee must be 0 for instant payment walk-in orders."
+                )
+        return data
+
     def create(self, validated_data):
         items_data = validated_data.pop('items')
         
-        # Validate stock before creating the order
+        # Stock validation
         from catalog.models import InventoryStock
         for item_data in items_data:
             product = item_data['product']
@@ -69,13 +87,13 @@ class OrderSerializer(serializers.ModelSerializer):
                 except InventoryStock.DoesNotExist:
                     raise serializers.ValidationError(f"Product {product.name} is out of stock.")
         
-        # Calculate total amount
+        # Calculate total
         total = sum(item['unit_price'] * item['quantity'] for item in items_data)
-        
         order = Order.objects.create(total_amount=total, **validated_data)
         
         for item_data in items_data:
             OrderItem.objects.create(order=order, **item_data)
+            # Deduct stock immediately on order creation
             product = item_data['product']
             if product.requires_inventory:
                 try:
@@ -84,18 +102,7 @@ class OrderSerializer(serializers.ModelSerializer):
                     stock.save()
                 except InventoryStock.DoesNotExist:
                     pass
-            
-        Payment.objects.create(
-            order=order,
-            amount=total,
-            status=Payment.Status.PENDING
-        )
-            
-        # If instantly paid (e.g. walk-in POS), enqueue it
-        if order.state in [order.State.PAID, order.State.QUEUED]:
-            from stores.services import KitchenEngine
-            KitchenEngine.enqueue_order(order)
-
+        
         return order
 
 class PublicOrderItemSerializer(serializers.ModelSerializer):

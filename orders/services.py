@@ -9,7 +9,13 @@ class OrderStateMachine:
     VALID_TRANSITIONS = {
         Order.State.CREATED: [Order.State.AWAITING_PAYMENT, Order.State.CANCELLED],
         Order.State.AWAITING_PAYMENT: [Order.State.PAID, Order.State.CANCELLED, Order.State.EXPIRED],
-        Order.State.PAID: [Order.State.QUEUED, Order.State.PREPARING, Order.State.READY, Order.State.REFUNDED],
+        Order.State.PAID: [
+            Order.State.QUEUED,
+            Order.State.PREPARING,
+            Order.State.READY,
+            Order.State.REFUNDED,
+            Order.State.CANCELLED,   # Walk-in orders can be cancelled within 10 minutes of creation
+        ],
         Order.State.QUEUED: [Order.State.PREPARING, Order.State.CANCELLED, Order.State.REFUNDED],
         Order.State.PREPARING: [Order.State.READY, Order.State.CANCELLED, Order.State.REFUNDED],
         Order.State.READY: [Order.State.OUT_FOR_DELIVERY, Order.State.COMPLETED, Order.State.REFUNDED],

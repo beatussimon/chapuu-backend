@@ -29,13 +29,19 @@ from catalog.stats_views import BillboardStatsViewSet
 from catalog.analytics_seller_views import SellerAnalyticsViewSet
 from stores.views import StoreViewSet, AdvertisementViewSet, CurrencyConfigViewSet, TableViewSet, NoticeViewSet, StorePaymentMethodViewSet
 from reservations.views import ReservationViewSet, TableSessionViewSet
-from payments.views import ZenopayWebhookView
 from reviews.views import StoreReviewViewSet
 from django.conf import settings
 from django.conf.urls.static import static
 from django.http import JsonResponse
 from django.db import connection
+from django.shortcuts import redirect
 from users.throttles import LoginRateThrottle
+
+def root_redirect(request):
+    return redirect('/api/')
+
+def favicon_view(request):
+    return redirect('/media/chapuu_assets/chapuu_brand.png')
 
 def health_check(request):
     db_ok = True
@@ -74,6 +80,8 @@ router.register(r'notices', NoticeViewSet, basename='notice')
 router.register(r'payment-methods', StorePaymentMethodViewSet, basename='payment-method')
 
 urlpatterns = [
+    path('', root_redirect),
+    path('favicon.ico', favicon_view),
     path(settings.ADMIN_URL, admin.site.urls),
     path('api/token/', TokenObtainPairView.as_view(throttle_classes=[LoginRateThrottle]), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
@@ -81,7 +89,6 @@ urlpatterns = [
     path('api/auth/users/me/', CurrentUserView.as_view(), name='current_user'),
     path('api/health/', health_check, name='health'),
     path('api/', include(router.urls)),
-    path('api/webhook/zenopay/', ZenopayWebhookView.as_view(), name='zenopay-webhook'),
 ]
 
 # Always serve media files (required for image uploads to work)
