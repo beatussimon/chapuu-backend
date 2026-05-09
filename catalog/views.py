@@ -55,22 +55,29 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     def _handle_initial_stock(self, product):
         initial_stock = self.request.data.get('initial_stock')
+        
+        # Check if initial_stock was actually provided in the request
         if initial_stock is not None:
             stripped = str(initial_stock).strip()
             if stripped != '':
                 try:
                     stock_qty = Decimal(stripped)
+                    # If valid quantity provided (even 0), track inventory
                     product.requires_inventory = True
                     product.save(update_fields=['requires_inventory'])
+                    
                     stock, created = InventoryStock.objects.get_or_create(product=product)
                     stock.quantity = stock_qty
                     stock.save()
                 except (ValueError, TypeError, InvalidOperation):
+                    # Fallback for invalid numeric input
                     pass
             else:
-                 # If explicitly set to empty, remove inventory requirement
+                 # Explicitly sent empty string -> Disable inventory tracking
                  product.requires_inventory = False
                  product.save(update_fields=['requires_inventory'])
+                 # Optionally delete the stock record if it exists
+                 InventoryStock.objects.filter(product=product).delete()
 
     def destroy(self, request, *args, **kwargs):
         """Soft-delete: mark product inactive instead of hard-deleting.
