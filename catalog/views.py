@@ -55,20 +55,22 @@ class ProductViewSet(viewsets.ModelViewSet):
 
     def _handle_initial_stock(self, product):
         initial_stock = self.request.data.get('initial_stock')
-        if initial_stock is not None and str(initial_stock).strip() != '':
-            try:
-                stock_qty = Decimal(str(initial_stock))
-                product.requires_inventory = True
-                product.save(update_fields=['requires_inventory'])
-                stock, created = InventoryStock.objects.get_or_create(product=product)
-                stock.quantity = stock_qty
-                stock.save()
-            except (ValueError, TypeError, InvalidOperation):
-                pass
-        elif initial_stock == '':
-             # If explicitly set to empty, remove inventory requirement
-             product.requires_inventory = False
-             product.save(update_fields=['requires_inventory'])
+        if initial_stock is not None:
+            stripped = str(initial_stock).strip()
+            if stripped != '':
+                try:
+                    stock_qty = Decimal(stripped)
+                    product.requires_inventory = True
+                    product.save(update_fields=['requires_inventory'])
+                    stock, created = InventoryStock.objects.get_or_create(product=product)
+                    stock.quantity = stock_qty
+                    stock.save()
+                except (ValueError, TypeError, InvalidOperation):
+                    pass
+            else:
+                 # If explicitly set to empty, remove inventory requirement
+                 product.requires_inventory = False
+                 product.save(update_fields=['requires_inventory'])
 
     def destroy(self, request, *args, **kwargs):
         """Soft-delete: mark product inactive instead of hard-deleting.
