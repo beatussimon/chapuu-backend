@@ -10,7 +10,7 @@ load_dotenv(dotenv_path=BASE_DIR / '.env', override=True)
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'default-unsafe-dev-key')
 DEBUG = os.environ.get('DEBUG', 'True').lower() in ('true', '1', 't')
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1,0.0.0.0').split(',')
 
 INSTALLED_APPS = [
     'daphne',
@@ -127,7 +127,7 @@ CORS_ALLOWED_ORIGINS = [
 ]
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
-    for origin in os.environ.get('CSRF_TRUSTED_ORIGINS', 'http://localhost:5173').split(',')
+    for origin in os.environ.get('CSRF_TRUSTED_ORIGINS', 'http://localhost:5173,http://127.0.0.1:5173,http://localhost:8001').split(',')
     if origin.strip()
 ]
 

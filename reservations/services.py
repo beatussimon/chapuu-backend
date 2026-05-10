@@ -51,32 +51,39 @@ class ReservationEngine:
     def create_reservation(cls, store: Store, customer, reservation_time, duration_minutes: int, guest_count: int, table: Table = None):
         """
         Attempts to create a reservation. Auto-assigns table if not provided.
+        Uses select_for_update to prevent race conditions during concurrent bookings.
         """
-        if table:
-            if not cls.is_table_available(table, reservation_time, duration_minutes):
-                raise ValueError("Table is not available for the requested time.")
-        else:
-            # Find an available table
-            tables = Table.objects.filter(store=store, is_active=True, capacity__gte=guest_count)
-            found = False
-            for t in tables:
-                if cls.is_table_available(t, reservation_time, duration_minutes):
-                    table = t
-                    found = True
-                    break
-            if not found:
-                raise ValueError("No tables available for the requested details.")
+        from django.db import transaction
         
-        reservation = Reservation.objects.create(
-            store=store,
-            customer=customer,
-            table=table,
-            reservation_time=reservation_time,
-            duration_minutes=duration_minutes,
-            guest_count=guest_count,
-            status=Reservation.Status.PENDING # Awaiting deposit/confirmation
-        )
-        return reservation
+        with transaction.atomic():
+            if table:
+                # Lock the table record for this transaction
+                locked_table = Table.objects.select_for_update().get(id=table.id)
+                if not cls.is_table_available(locked_table, reservation_time, duration_minutes):
+                    raise ValueError("Table is not available for the requested time.")
+                table = locked_table
+            else:
+                # Find an available table and lock it
+                tables = Table.objects.filter(store=store, is_active=True, capacity__gte=guest_count).select_for_update()
+                found = False
+                for t in tables:
+                    if cls.is_table_available(t, reservation_time, duration_minutes):
+                        table = t
+                        found = True
+                        break
+                if not found:
+                    raise ValueError("No tables available for the requested details.")
+            
+            reservation = Reservation.objects.create(
+                store=store,
+                customer=customer,
+                table=table,
+                reservation_time=reservation_time,
+                duration_minutes=duration_minutes,
+                guest_count=guest_count,
+                status=Reservation.Status.PENDING # Awaiting deposit/confirmation
+            )
+            return reservation
 
     @classmethod
     def activate_reservation(cls, reservation: Reservation):

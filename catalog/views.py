@@ -155,8 +155,18 @@ class InventoryStockViewSet(viewsets.ModelViewSet):
             if stock.quantity + adjustment < Decimal('0'):
                 return Response({"error": "Stock cannot be negative"}, status=status.HTTP_400_BAD_REQUEST)
                 
+            previous_qty = stock.quantity
             stock.quantity += adjustment
             stock.save()
+            
+            # Log the adjustment
+            StockAdjustmentLog.objects.create(
+                stock=stock,
+                previous_quantity=previous_qty,
+                new_quantity=stock.quantity,
+                reason=f"Manual adjustment by {request.user.username}"
+            )
+            
             return Response({"status": "Stock adjusted", "new_quantity": stock.quantity})
         except (ValueError, TypeError, InvalidOperation):
             return Response({"error": "Invalid adjustment amount"}, status=status.HTTP_400_BAD_REQUEST)
