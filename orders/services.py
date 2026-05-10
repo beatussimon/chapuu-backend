@@ -33,6 +33,11 @@ class OrderStateMachine:
         Validates whether the transition is allowed.
         """
         current_state = order.state
+        
+        # IDEMPOTENCY: If already in target state, just return success
+        if current_state == new_state:
+            return order
+
         valid_targets = cls.VALID_TRANSITIONS.get(current_state, [])
         
         if new_state not in valid_targets:

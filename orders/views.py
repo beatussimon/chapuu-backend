@@ -247,6 +247,12 @@ class OrderViewSet(viewsets.ModelViewSet):
         for oid in order_ids:
             try:
                 order = Order.objects.get(pk=oid)
+                
+                # IDEMPOTENCY: Skip if already in the target state
+                if order.state == new_state:
+                    processed_ids.append(oid)
+                    continue
+
                 if not store_id:
                     store_id = order.store_id
 
