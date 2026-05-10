@@ -74,24 +74,24 @@ class OrderViewSet(viewsets.ModelViewSet):
                 notes=f"Walk-in instant payment collected in person by {user.username}."
             )
             # Transition directly: CREATED → PAID
-            updated_order = OrderStateMachine.transition_order(
+            order = OrderStateMachine.transition_order(
                 order, Order.State.PAID,
                 notes=f"Walk-in order — instant payment collected by {user.username}."
             )
             # Route to kitchen or mark ready based on store type
-            is_shop = updated_order.store.store_type == 'SHOP'
+            is_shop = order.store.store_type == 'SHOP'
             if is_shop:
                 # Shops skip kitchen: PAID → READY
-                OrderStateMachine.transition_order(
-                    updated_order, Order.State.READY,
+                order = OrderStateMachine.transition_order(
+                    order, Order.State.READY,
                     notes="Shop walk-in — instant ready for pickup."
                 )
             else:
                 # Restaurants: enqueue to kitchen
-                KitchenEngine.enqueue_order(updated_order)
+                KitchenEngine.enqueue_order(order)
                 # Optionally auto-transition to QUEUED so kitchen sees it
-                OrderStateMachine.transition_order(
-                    updated_order, Order.State.QUEUED,
+                order = OrderStateMachine.transition_order(
+                    order, Order.State.QUEUED,
                     notes="Walk-in order queued to kitchen."
                 )
         else:
@@ -103,10 +103,13 @@ class OrderViewSet(viewsets.ModelViewSet):
                 amount=order.total_amount,
                 status=Payment.Status.PENDING
             )
-            OrderStateMachine.transition_order(
+            order = OrderStateMachine.transition_order(
                 order, Order.State.AWAITING_PAYMENT,
                 notes="Order placed. Awaiting offline payment."
             )
+        
+        # Sync the serializer instance with the latest state
+        serializer.instance = order
 
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def cancel(self, request, pk=None):

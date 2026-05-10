@@ -9,7 +9,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(dotenv_path=BASE_DIR / '.env', override=True)
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'default-unsafe-dev-key')
-DEBUG = os.environ.get('DEBUG', 'False').lower() in ('true', '1', 't')
+DEBUG = os.environ.get('DEBUG', 'True').lower() in ('true', '1', 't')
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost,127.0.0.1').split(',')
 
 INSTALLED_APPS = [
@@ -130,52 +130,121 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 
-# Proxy settings for production
+# Security settings for production
 USE_X_FORWARDED_HOST = True
-SECURE_PROXY_SSL_HEADER = None
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
-# Cookie safety for HTTP prod
-SESSION_COOKIE_SECURE = False
-CSRF_COOKIE_SECURE = False
+# Cookie safety (Defaults to False for HTTP, enable in prod via env)
+SESSION_COOKIE_SECURE = os.environ.get('SESSION_COOKIE_SECURE', 'False').lower() in ('true', '1', 't')
+CSRF_COOKIE_SECURE = os.environ.get('CSRF_COOKIE_SECURE', 'False').lower() in ('true', '1', 't')
 SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = False
 
-# Disable strict headers for HTTP prod
-SECURE_SSL_REDIRECT = False
-SECURE_HSTS_SECONDS = 0
-SECURE_CONTENT_TYPE_NOSNIFF = False
-SECURE_BROWSER_XSS_FILTER = False
-SECURE_REFERRER_POLICY = 'no-referrer-when-downgrade'
-SECURE_CROSS_ORIGIN_OPENER_POLICY = None
+# Security headers (Defaults to False/0 for HTTP, enable in prod via env)
+SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'False').lower() in ('true', '1', 't')
+SECURE_HSTS_SECONDS = int(os.environ.get('SECURE_HSTS_SECONDS', 0))
+SECURE_HSTS_INCLUDE_SUBDOMAINS = os.environ.get('SECURE_HSTS_INCLUDE_SUBDOMAINS', 'False').lower() in ('true', '1', 't')
+SECURE_HSTS_PRELOAD = os.environ.get('SECURE_HSTS_PRELOAD', 'False').lower() in ('true', '1', 't')
+SECURE_CONTENT_TYPE_NOSNIFF = os.environ.get('SECURE_CONTENT_TYPE_NOSNIFF', 'False').lower() in ('true', '1', 't')
+SECURE_BROWSER_XSS_FILTER = os.environ.get('SECURE_BROWSER_XSS_FILTER', 'False').lower() in ('true', '1', 't')
+SECURE_REFERRER_POLICY = os.environ.get('SECURE_REFERRER_POLICY', 'same-origin')
+SECURE_CROSS_ORIGIN_OPENER_POLICY = 'same-origin' if not DEBUG else None
 
 # Celery & Redis (Environment-Aware Defaults)
-# In Docker/Production, we use the 'redis' service name.
-# In local development (DEBUG=True), we fallback to 127.0.0.1.
 REDIS_HOST = "127.0.0.1" if DEBUG else "redis"
 
+# Check if we should use Redis or In-Memory fallbacks for dev/test
+import sys
+IS_TESTING = 'test' in sys.argv
+USE_REDIS = (os.environ.get("REDIS_URL") or os.environ.get("REDIS_CACHE_URL") or not DEBUG) and not IS_TESTING
+
+if USE_REDIS:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [os.environ.get("REDIS_URL", f"redis://{REDIS_HOST}:6379/1")],
+            },
+        },
+    }
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": os.environ.get("REDIS_CACHE_URL", f"redis://{REDIS_HOST}:6379/2"),
+        }
+    }
+else:
+    # Local dev or testing without Redis
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels.layers.InMemoryChannelLayer",
+        },
+    }
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        }
+    }
+
+if IS_TESTING:
+    # Disable throttles in tests
+    REST_FRAMEWORK['DEFAULT_THROTTLE_CLASSES'] = []
+
 CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", f"redis://{REDIS_HOST}:6379/0")
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {process:d} {thread:d} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{levelname} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(BASE_DIR, 'backend.log'),
+            'formatter': 'verbose',
+        },
+    },
+    'root': {
+        'handlers': ['console', 'file'],
+        'level': 'INFO',
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': os.environ.get('DJANGO_LOG_LEVEL', 'INFO'),
+            'propagate': False,
+        },
+        'orders': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'payments': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
 
 if DEBUG:
     CORS_ALLOW_ALL_ORIGINS = True
     X_FRAME_OPTIONS = 'SAMEORIGIN'
 else:
     X_FRAME_OPTIONS = 'DENY'
-
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [os.environ.get("REDIS_URL", f"redis://{REDIS_HOST}:6379/1")],
-        },
-    },
-}
-
-CACHES = {
-    "default": {
-        "BACKEND": "django.core.cache.backends.redis.RedisCache",
-        "LOCATION": os.environ.get("REDIS_CACHE_URL", f"redis://{REDIS_HOST}:6379/2"),
-    }
-}
 
 CELERY_BEAT_SCHEDULE = {
     'expire-unpaid-orders': {
