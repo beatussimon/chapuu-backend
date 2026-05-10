@@ -1,5 +1,6 @@
 from django.db import models
 from django.conf import settings
+from config.image_utils import compress_image
 
 class Store(models.Model):
     class StoreType(models.TextChoices):
@@ -18,6 +19,17 @@ class Store(models.Model):
     base_delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def save(self, *args, **kwargs):
+        # Auto-compress store image to WebP on upload
+        if self.image and hasattr(self.image, 'file'):
+            try:
+                compressed = compress_image(self.image)
+                if compressed and compressed is not self.image:
+                    self.image = compressed
+            except Exception:
+                pass
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.name} ({self.store_type})"
 
@@ -29,6 +41,16 @@ class StorePaymentMethod(models.Model):
     instructions = models.TextField(blank=True, null=True, help_text="e.g. Send to Till Number 123456")
     image = models.ImageField(upload_to='payment_methods/', null=True, blank=True, help_text="Network logo/image")
     is_active = models.BooleanField(default=True)
+
+    def save(self, *args, **kwargs):
+        if self.image and hasattr(self.image, 'file'):
+            try:
+                compressed = compress_image(self.image)
+                if compressed and compressed is not self.image:
+                    self.image = compressed
+            except Exception:
+                pass
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.provider} for {self.store.name}"

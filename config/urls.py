@@ -92,7 +92,9 @@ urlpatterns = [
 ]
 
 # Always serve media files (required for image uploads to work)
+# Custom view adds cache headers for faster repeat loads
+from config.media_serve import cached_media_serve
 urlpatterns += [
-    re_path(r'^media/(?P<path>.*)$', serve, {'document_root': settings.MEDIA_ROOT}),
+    re_path(r'^media/(?P<path>.*)$', cached_media_serve, {'document_root': settings.MEDIA_ROOT}),
 ]
 

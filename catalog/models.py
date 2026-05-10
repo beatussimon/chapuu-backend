@@ -1,5 +1,6 @@
 from django.db import models
 from stores.models import Store
+from config.image_utils import compress_image
 
 class Category(models.Model):
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='categories')
@@ -29,6 +30,24 @@ class Product(models.Model):
     
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        # Auto-compress images to WebP on new upload
+        if self.image and hasattr(self.image, 'file'):
+            try:
+                compressed = compress_image(self.image)
+                if compressed and compressed is not self.image:
+                    self.image = compressed
+            except Exception:
+                pass  # Keep original if compression fails
+        if self.image2 and hasattr(self.image2, 'file'):
+            try:
+                compressed2 = compress_image(self.image2)
+                if compressed2 and compressed2 is not self.image2:
+                    self.image2 = compressed2
+            except Exception:
+                pass
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
