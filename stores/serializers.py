@@ -59,10 +59,17 @@ class CurrencyConfigSerializer(serializers.ModelSerializer):
         fields = ['id', 'code', 'name', 'symbol', 'rate_to_base', 'is_default', 'is_active']
 
 class NoticeSerializer(serializers.ModelSerializer):
-    created_by_username = serializers.ReadOnlyField(source='created_by.username')
-    
+    created_by_username = serializers.CharField(source='created_by.username', read_only=True)
+    is_read = serializers.SerializerMethodField()
+
     class Meta:
         model = Notice
-        fields = ['id', 'title', 'message', 'store', 'target_user', 'created_by', 'created_by_username', 'created_at']
+        fields = ['id', 'title', 'message', 'store', 'target_user', 'created_by', 'created_by_username', 'is_read', 'created_at']
         read_only_fields = ['created_by']
+
+    def get_is_read(self, obj):
+        user = self.context.get('request').user
+        if user.is_authenticated:
+            return obj.read_by.filter(id=user.id).exists()
+        return False
 

@@ -73,6 +73,12 @@ class NoticeViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def mark_as_read(self, request, pk=None):
+        notice = self.get_object()
+        notice.read_by.add(request.user)
+        return Response({"status": "Notice marked as read"})
+
 class CurrencyConfigViewSet(viewsets.ReadOnlyModelViewSet):
     """Public read-only endpoint for active currencies and exchange rates."""
     queryset = CurrencyConfig.objects.filter(is_active=True)

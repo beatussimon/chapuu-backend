@@ -136,6 +136,7 @@ class Notice(models.Model):
     store = models.ForeignKey(Store, on_delete=models.CASCADE, null=True, blank=True, related_name='notices', help_text="If null, it's a global notice.")
     target_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True, related_name='notices_received', help_text="If null, goes to all staff in the store/global.")
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notices_sent')
+    read_by = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='read_notices', blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
