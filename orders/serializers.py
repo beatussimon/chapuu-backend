@@ -56,6 +56,13 @@ class OrderSerializer(serializers.ModelSerializer):
     def validate(self, data):
         is_instant = data.get('is_instant_payment', False)
         fulfillment_mode = data.get('fulfillment_mode', '')
+        payment_message = data.get('payment_message', '').strip()
+
+        # Transaction ID / Proof of Payment is mandatory for non-instant payments
+        if not is_instant and not payment_message:
+            raise serializers.ValidationError({
+                "payment_message": "Transaction ID or proof of payment is required."
+            })
         
         if is_instant:
             # Cannot pay on spot for a delivery order
