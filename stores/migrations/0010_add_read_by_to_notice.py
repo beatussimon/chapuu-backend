@@ -4,7 +4,7 @@ from django.conf import settings
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('stores', '0009_alter_store_store_type'),
+        ('stores', '0009_storepaymentmethod_image'),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
