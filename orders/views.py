@@ -217,3 +217,84 @@ class OrderViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def bulk_advance_state(self, request):
+        order_ids = request.data.get('order_ids', [])
+        new_state = request.data.get('state')
+        user = request.user
+        
+        if not order_ids or not new_state:
+            return Response({"error": "order_ids and state are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Role-based permission checks
+        allowed = False
+        if user.role == 'ADMIN' or user.role == 'SELLER':
+            allowed = True
+        elif user.role == 'ACCOUNTANT' and new_state in [Order.State.PAID, Order.State.CANCELLED]:
+            allowed = True
+        elif user.role == 'CHEF' and new_state in [Order.State.PREPARING, Order.State.READY]:
+            allowed = True
+        elif user.role == 'DELIVERY' and new_state in [Order.State.OUT_FOR_DELIVERY, Order.State.COMPLETED]:
+            allowed = True
+            
+        if not allowed:
+            return Response({"error": "Permission denied for this state transition"}, status=status.HTTP_403_FORBIDDEN)
+
+        processed_ids = []
+        errors = []
+        store_id = None
+
+        for oid in order_ids:
+            try:
+                order = Order.objects.get(pk=oid)
+                if not store_id:
+                    store_id = order.store_id
+
+                # Transition logic
+                with transaction.atomic():
+                    locked_order = Order.objects.select_for_update().get(id=order.id)
+                    current_state = locked_order.state
+                    
+                    if new_state not in OrderStateMachine.VALID_TRANSITIONS.get(current_state, []):
+                        errors.append(f"Order #{oid}: Invalid transition from {current_state} to {new_state}")
+                        continue
+                    
+                    locked_order.state = new_state
+                    locked_order.save(update_fields=['state', 'updated_at'])
+
+                    if new_state == Order.State.PAID and locked_order.customer:
+                        from django.db.models import F
+                        locked_order.customer.__class__.objects.filter(pk=locked_order.customer_id).update(
+                            loyalty_points=F('loyalty_points') + int(locked_order.total_amount)
+                        )
+
+                    OrderEventLog.objects.create(
+                        order=locked_order,
+                        previous_state=current_state,
+                        new_state=new_state,
+                        notes="Bulk state advance via API"
+                    )
+
+                    if new_state in [Order.State.PAID, Order.State.QUEUED]:
+                        if locked_order.store.store_type == 'SHOP':
+                            if locked_order.state == Order.State.PAID:
+                                locked_order.state = Order.State.READY
+                                locked_order.save(update_fields=['state', 'updated_at'])
+                        else:
+                            from stores.services import KitchenEngine
+                            KitchenEngine.enqueue_order(locked_order)
+
+                processed_ids.append(oid)
+            except Exception as e:
+                errors.append(f"Order #{oid}: {str(e)}")
+
+        if processed_ids and store_id:
+            OrderStateMachine.emit_bulk_update(processed_ids, new_state, store_id)
+
+        return Response({
+            "status": "Bulk processing complete",
+            "processed_count": len(processed_ids),
+            "processed_ids": processed_ids,
+            "errors": errors
+        }, status=status.HTTP_200_OK if not errors else status.HTTP_207_MULTI_STATUS)
+

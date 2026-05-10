@@ -103,3 +103,34 @@ class OrderStateMachine:
                 'message': payload
             }
         )
+
+    @classmethod
+    def emit_bulk_update(cls, order_ids: list, new_state: str, store_id: int):
+        channel_layer = get_channel_layer()
+        if not channel_layer:
+            return
+
+        payload = {
+            'order_ids': order_ids,
+            'state': new_state,
+            'store_id': store_id,
+            'is_bulk': True
+        }
+
+        # Broadcast to store-specific group
+        async_to_sync(channel_layer.group_send)(
+            f'store_{store_id}_orders',
+            {
+                'type': 'order_update',
+                'message': payload
+            }
+        )
+        
+        # Broadcast to global group
+        async_to_sync(channel_layer.group_send)(
+            'global_orders',
+            {
+                'type': 'order_update',
+                'message': payload
+            }
+        )
