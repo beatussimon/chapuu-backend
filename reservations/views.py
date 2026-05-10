@@ -42,10 +42,20 @@ class ReservationViewSet(viewsets.ModelViewSet):
             res.save(update_fields=['status'])
 
         if user.role == 'SELLER':
-            return Reservation.objects.filter(store__owner=user).order_by('reservation_time')
+            queryset = Reservation.objects.filter(store__owner=user)
         elif user.role == 'ADMIN':
-            return Reservation.objects.all().order_by('reservation_time')
-        return Reservation.objects.filter(customer=user).order_by('reservation_time')
+            queryset = Reservation.objects.all()
+        elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY'] and user.employed_store:
+            queryset = Reservation.objects.filter(store=user.employed_store)
+        else:
+            queryset = Reservation.objects.filter(customer=user)
+
+        # Allow filtering by store via query params
+        store_id = self.request.query_params.get('store')
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+
+        return queryset.order_by('reservation_time')
 
     def create(self, request, *args, **kwargs):
         data = request.data
