@@ -57,18 +57,22 @@ class NoticeViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        from django.db.models import Q
+        
         if user.role == 'ADMIN':
             return Notice.objects.all()
         elif user.role == 'SELLER':
             return Notice.objects.filter(Q(store__owner=user) | Q(store__isnull=True))
-        else:
-            # Staff can see notices for their store or global ones
-            qs = Notice.objects.filter(Q(target_user=user) | Q(target_user__isnull=True))
-            if user.employed_store:
-                qs = qs.filter(Q(store=user.employed_store) | Q(store__isnull=True))
-            else:
-                qs = qs.filter(store__isnull=True)
-            return qs
+        elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY'] and user.employed_store:
+            # Staff see notices for their store, notices targeting them, or global ones
+            return Notice.objects.filter(
+                Q(store=user.employed_store) | 
+                Q(target_user=user) | 
+                Q(store__isnull=True)
+            )
+        
+        # Customers/Other only see global or specific targets
+        return Notice.objects.filter(Q(target_user=user) | Q(store__isnull=True))
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)

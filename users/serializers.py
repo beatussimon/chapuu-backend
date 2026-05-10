@@ -27,3 +27,28 @@ class UserSerializer(serializers.ModelSerializer):
             instance.set_password(password)
         instance.save()
         return instance
+
+class StaffSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=False)
+    
+    class Meta:
+        model = User
+        fields = ('id', 'username', 'password', 'first_name', 'last_name', 'role', 'phone_number', 'is_active', 'employed_store')
+        read_only_fields = ('employed_store',)
+
+    def validate_role(self, value):
+        if value not in ['CHEF', 'ACCOUNTANT', 'DELIVERY']:
+            raise serializers.ValidationError("Only staff roles (CHEF, ACCOUNTANT, DELIVERY) can be managed here.")
+        return value
+
+    def create(self, validated_data):
+        # Store is assigned in the ViewSet based on the Seller's owned store
+        password = validated_data.pop('password', None)
+        user = User.objects.create(**validated_data)
+        if password:
+            user.set_password(password)
+        else:
+            # Default password if not provided
+            user.set_password("Chapuu123!")
+        user.save()
+        return user

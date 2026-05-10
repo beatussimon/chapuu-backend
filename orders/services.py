@@ -27,7 +27,7 @@ class OrderStateMachine:
     }
 
     @classmethod
-    def transition_order(cls, order: Order, new_state: str, notes: str = "") -> Order:
+    def transition_order(cls, order: Order, new_state: str, notes: str = "", performed_by=None) -> Order:
         """
         Transitions the order to a new state atomically, logging the event.
         Validates whether the transition is allowed.
@@ -41,7 +41,6 @@ class OrderStateMachine:
         valid_targets = cls.VALID_TRANSITIONS.get(current_state, [])
         
         if new_state not in valid_targets:
-            print(f"DEBUG: Invalid transition attempt: {current_state} -> {new_state}. Valid targets: {valid_targets}")
             raise ValidationError(f"Invalid transition from {current_state} to {new_state}.")
 
         with transaction.atomic():
@@ -64,7 +63,8 @@ class OrderStateMachine:
                 order=locked_order,
                 previous_state=previous_state,
                 new_state=new_state,
-                notes=notes
+                notes=notes,
+                performed_by=performed_by
             )
 
         # Emit WebSocket event after successful DB transaction

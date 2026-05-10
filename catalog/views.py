@@ -27,10 +27,20 @@ class ProductViewSet(viewsets.ModelViewSet):
     permission_classes = [IsSellerOrAdminForWrite]
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        # If user is a seller, they should see all their products, even inactive ones
-        if self.request.user.is_authenticated and self.request.user.role in ['SELLER', 'ADMIN']:
-            queryset = Product.objects.all()
+        user = self.request.user
+        queryset = Product.objects.all()
+
+        # Isolate by Role
+        if not user.is_authenticated:
+            queryset = Product.objects.filter(is_active=True)
+        elif user.role == 'ADMIN':
+            pass # See all
+        elif user.role == 'SELLER':
+            queryset = queryset.filter(store__owner=user)
+        elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY'] and user.employed_store:
+            queryset = queryset.filter(store=user.employed_store)
+        else:
+            queryset = Product.objects.filter(is_active=True)
             
         store_id = self.request.query_params.get('store', None)
         category_id = self.request.query_params.get('category', None)
@@ -38,10 +48,6 @@ class ProductViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(store_id=store_id)
         if category_id is not None:
             queryset = queryset.filter(category_id=category_id)
-            
-        # If user is a seller, restrict to their store only
-        if self.request.user.is_authenticated and self.request.user.role == 'SELLER':
-            queryset = queryset.filter(store__owner=self.request.user)
             
         return queryset
 
@@ -140,13 +146,15 @@ class InventoryStockViewSet(viewsets.ModelViewSet):
             return InventoryStock.objects.filter(product__store__owner=user) | InventoryStock.objects.filter(ingredient__store__owner=user)
         elif user.role == 'ADMIN':
             return InventoryStock.objects.all()
+        elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY'] and user.employed_store:
+            return InventoryStock.objects.filter(product__store=user.employed_store) | InventoryStock.objects.filter(ingredient__store=user.employed_store)
         return InventoryStock.objects.none()
 
     @action(detail=True, methods=['post'])
     def adjust(self, request, pk=None):
         """Manually adjust stock (restock/deduct)"""
         stock = self.get_object()
-        if request.user.role != 'SELLER' and request.user.role != 'ADMIN':
+        if request.user.role not in ['SELLER', 'ADMIN', 'CHEF']:
              return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
              
         adjustment = request.data.get('adjustment', 0)
@@ -181,6 +189,8 @@ class IngredientViewSet(viewsets.ModelViewSet):
             return Ingredient.objects.filter(store__owner=user)
         elif user.role == 'ADMIN':
             return Ingredient.objects.all()
+        elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY'] and user.employed_store:
+            return Ingredient.objects.filter(store=user.employed_store)
         return Ingredient.objects.none()
 
 class RecipeIngredientViewSet(viewsets.ModelViewSet):
@@ -193,4 +203,6 @@ class RecipeIngredientViewSet(viewsets.ModelViewSet):
             return RecipeIngredient.objects.filter(product__store__owner=user)
         elif user.role == 'ADMIN':
             return RecipeIngredient.objects.all()
+        elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY'] and user.employed_store:
+            return RecipeIngredient.objects.filter(product__store=user.employed_store)
         return RecipeIngredient.objects.none()

@@ -45,24 +45,19 @@ class OrderViewSet(viewsets.ModelViewSet):
             return qs
 
         # Authenticated Queryset
-        if store_id:
-            return Order.objects.filter(store_id=store_id)
-
         if user.role == 'ADMIN':
-            return Order.objects.select_related('review').all()
+            queryset = Order.objects.select_related('review').all()
         elif user.role == 'SELLER':
-            return Order.objects.select_related('review').filter(store__owner=user)
-        elif user.role in ['CHEF', 'ACCOUNTANT']:
-            if user.employed_store:
-                return Order.objects.select_related('review').filter(store=user.employed_store)
-            return Order.objects.select_related('review').all()
-        elif user.role == 'DELIVERY':
-            qs = Order.objects.select_related('review').filter(fulfillment_mode='DELIVERY')
-            if user.employed_store:
-                qs = qs.filter(store=user.employed_store)
-            return qs
+            queryset = Order.objects.select_related('review').filter(store__owner=user)
+        elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY'] and user.employed_store:
+            queryset = Order.objects.select_related('review').filter(store=user.employed_store)
         else:
-            return Order.objects.select_related('review').filter(customer=user)
+            queryset = Order.objects.select_related('review').filter(customer=user)
+
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+            
+        return queryset
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -83,14 +78,14 @@ class OrderViewSet(viewsets.ModelViewSet):
                 status=Payment.Status.WAIVED,
                 notes=f"Walk-in instant payment collected by {user.username}."
             )
-            order = OrderStateMachine.transition_order(order, Order.State.PAID, notes="Walk-in order — instant payment.")
+            order = OrderStateMachine.transition_order(order, Order.State.PAID, notes="Walk-in order — instant payment.", performed_by=user)
             
             # Route based on store type
             if order.store.store_type == 'SHOP':
-                order = OrderStateMachine.transition_order(order, Order.State.READY, notes="Shop walk-in — instant ready.")
+                order = OrderStateMachine.transition_order(order, Order.State.READY, notes="Shop walk-in — instant ready.", performed_by=user)
             else:
                 KitchenEngine.enqueue_order(order)
-                order = OrderStateMachine.transition_order(order, Order.State.QUEUED, notes="Walk-in order queued.")
+                order = OrderStateMachine.transition_order(order, Order.State.QUEUED, notes="Walk-in order queued.", performed_by=user)
         else:
             # Standard flow
             Payment.objects.create(
@@ -98,7 +93,7 @@ class OrderViewSet(viewsets.ModelViewSet):
                 amount=order.total_amount,
                 status=Payment.Status.PENDING
             )
-            order = OrderStateMachine.transition_order(order, Order.State.AWAITING_PAYMENT, notes="Awaiting offline payment.")
+            order = OrderStateMachine.transition_order(order, Order.State.AWAITING_PAYMENT, notes="Awaiting offline payment.", performed_by=user)
         
         serializer.instance = order
 
@@ -156,12 +151,12 @@ class OrderViewSet(viewsets.ModelViewSet):
                 order.total_amount = float(order.total_amount) + float(order.delivery_fee)
                 order.save(update_fields=['delivery_fee', 'total_amount'])
 
-            updated_order = OrderStateMachine.transition_order(order, new_state, notes="Manual advance.")
+            updated_order = OrderStateMachine.transition_order(order, new_state, notes="Manual advance.", performed_by=user)
             
             if new_state in [Order.State.PAID, Order.State.QUEUED]:
                 if updated_order.store.store_type == 'SHOP':
                     if updated_order.state == Order.State.PAID:
-                        updated_order = OrderStateMachine.transition_order(updated_order, Order.State.READY, notes="Shop kitchen skip.")
+                        updated_order = OrderStateMachine.transition_order(updated_order, Order.State.READY, notes="Shop kitchen skip.", performed_by=user)
                 else:
                     KitchenEngine.enqueue_order(updated_order)
                 
