@@ -125,7 +125,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=True, methods=['post'], url_path='items/(?P<item_id>\d+)/ready', permission_classes=[permissions.IsAuthenticated])
+    @action(detail=True, methods=['post'], url_path=r'items/(?P<item_id>\d+)/ready', permission_classes=[permissions.IsAuthenticated])
     def mark_item_ready(self, request, pk=None, item_id=None):
         order = self.get_object()
         

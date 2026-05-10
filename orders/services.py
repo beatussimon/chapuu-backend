@@ -32,11 +32,15 @@ class OrderStateMachine:
         Transitions the order to a new state atomically, logging the event.
         Validates whether the transition is allowed.
         """
-        if new_state not in cls.VALID_TRANSITIONS.get(order.state, []):
-            raise ValidationError(f"Invalid transition from {order.state} to {new_state}.")
+        current_state = order.state
+        valid_targets = cls.VALID_TRANSITIONS.get(current_state, [])
+        
+        if new_state not in valid_targets:
+            print(f"DEBUG: Invalid transition attempt: {current_state} -> {new_state}. Valid targets: {valid_targets}")
+            raise ValidationError(f"Invalid transition from {current_state} to {new_state}.")
 
         with transaction.atomic():
-            locked_order = Order.objects.get(id=order.id)
+            locked_order = Order.objects.select_for_update().get(id=order.id)
             
             if new_state not in cls.VALID_TRANSITIONS.get(locked_order.state, []):
                 raise ValidationError(f"Invalid transition from {locked_order.state} to {new_state}.")
