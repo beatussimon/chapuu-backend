@@ -26,11 +26,12 @@ class OrderSerializer(serializers.ModelSerializer):
     has_review = serializers.SerializerMethodField()
     review_details = serializers.SerializerMethodField()
     store_name = serializers.CharField(source='store.name', read_only=True)
+    store_phone = serializers.CharField(source='store.contact_phone', read_only=True)
 
     class Meta:
         model = Order
         fields = [
-            'id', 'store', 'store_name', 'customer', 'customer_name', 'table', 'table_number', 'reservation', 'reservation_time', 'state', 
+            'id', 'store', 'store_name', 'store_phone', 'customer', 'customer_name', 'table', 'table_number', 'reservation', 'reservation_time', 'state', 
             'fulfillment_mode', 'customer_phone', 'delivery_location', 'total_amount', 'delivery_fee', 'created_at', 
             'updated_at', 'scheduled_time', 'is_instant_payment', 'items', 'payment_message', 'payment_receipt', 'has_review', 'review_details'
         ]
