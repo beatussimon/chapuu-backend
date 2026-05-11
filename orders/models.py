@@ -75,6 +75,7 @@ class OrderEventLog(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='event_logs')
     previous_state = models.CharField(max_length=20, blank=True)
     new_state = models.CharField(max_length=20)
+    performed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True)
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
