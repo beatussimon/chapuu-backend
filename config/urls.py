@@ -23,7 +23,7 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
 from catalog.views import ProductViewSet, CategoryViewSet, InventoryStockViewSet, IngredientViewSet, RecipeIngredientViewSet
-from users.views import UserViewSet, CustomerRegistrationView, CurrentUserView
+from users.views import UserViewSet, CustomerRegistrationView, CurrentUserView, StaffManagementViewSet
 from orders.views import OrderViewSet
 from catalog.stats_views import BillboardStatsViewSet
 from catalog.analytics_seller_views import SellerAnalyticsViewSet
@@ -78,6 +78,7 @@ router.register(r'currencies', CurrencyConfigViewSet, basename='currency')
 router.register(r'tables', TableViewSet, basename='table')
 router.register(r'notices', NoticeViewSet, basename='notice')
 router.register(r'payment-methods', StorePaymentMethodViewSet, basename='payment-method')
+router.register(r'staff', StaffManagementViewSet, basename='staff')
 
 urlpatterns = [
     path('', root_redirect),
