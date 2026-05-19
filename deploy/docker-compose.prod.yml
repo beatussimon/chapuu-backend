@@ -94,6 +94,7 @@ services:
       - "traefik.http.routers.backend.middlewares=api-rate-limit@file"
       - "traefik.http.services.backend.loadbalancer.server.port=8000"
       - "traefik.http.services.backend.loadbalancer.healthcheck.path=/api/health/"
+      - "traefik.http.services.backend.loadbalancer.healthcheck.hostname=${TRAEFIK_DOMAIN}"
       - "traefik.http.services.backend.loadbalancer.healthcheck.interval=30s"
       # WebSocket — highest priority so it matches before generic PathPrefix rules
       - "traefik.http.routers.backend-ws.rule=Host(`${TRAEFIK_DOMAIN}`) && PathPrefix(`/ws`)"
