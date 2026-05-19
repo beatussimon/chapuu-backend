@@ -86,6 +86,7 @@ services:
       - chapuu_network
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=chapuu_network"
       # HTTP API + Admin + Static + Media
       - "traefik.http.routers.backend.rule=(Host(`${TRAEFIK_DOMAIN}`) || Host(`www.${TRAEFIK_DOMAIN}`)) && (PathPrefix(`/api`) || PathPrefix(`/admin`) || PathPrefix(`/static`) || PathPrefix(`/media`))"
       - "traefik.http.routers.backend.entrypoints=websecure"
@@ -167,6 +168,7 @@ services:
       start_period: 10s
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=chapuu_network"
       - "traefik.http.routers.static.rule=(Host(`${TRAEFIK_DOMAIN}`) || Host(`www.${TRAEFIK_DOMAIN}`)) && (PathPrefix(`/media`) || PathPrefix(`/static`))"
       - "traefik.http.routers.static.entrypoints=websecure"
       - "traefik.http.routers.static.tls.certresolver=letsencrypt"
@@ -187,6 +189,7 @@ services:
       - chapuu_network
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=chapuu_network"
       - "traefik.http.routers.frontend.rule=Host(`${TRAEFIK_DOMAIN}`) || Host(`www.${TRAEFIK_DOMAIN}`)"
       - "traefik.http.routers.frontend.entrypoints=websecure"
       - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
@@ -206,4 +209,5 @@ volumes:
 
 networks:
   chapuu_network:
+    name: chapuu_network
     driver: bridge
