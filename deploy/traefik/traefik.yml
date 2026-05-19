@@ -3,7 +3,7 @@ api:
   insecure: true
 
 log:
-  level: WARN
+  level: DEBUG
 
 accessLog:
   bufferingSize: 100
