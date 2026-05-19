@@ -1,5 +1,6 @@
 api:
-  dashboard: false
+  dashboard: true
+  insecure: true
 
 log:
   level: WARN
