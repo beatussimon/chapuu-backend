@@ -1,9 +1,8 @@
 api:
-  dashboard: true
-  insecure: true
+  dashboard: false
 
 log:
-  level: DEBUG
+  level: WARN
 
 accessLog:
   bufferingSize: 100
