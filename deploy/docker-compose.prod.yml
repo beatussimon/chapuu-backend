@@ -178,7 +178,7 @@ services:
       context: ../../chapuu-web-frontend
       dockerfile: Dockerfile.prod
       args:
-        VITE_BACKEND_URL: http://${TRAEFIK_DOMAIN:-localhost}
+        VITE_BACKEND_URL: https://${TRAEFIK_DOMAIN:-localhost}
     restart: unless-stopped
     networks:
       - chapuu_network
