@@ -87,7 +87,7 @@ services:
     labels:
       - "traefik.enable=true"
       # HTTP API + Admin + Static + Media
-      - "traefik.http.routers.backend.rule=Host(`${TRAEFIK_DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/admin`) || PathPrefix(`/static`) || PathPrefix(`/media`))"
+      - "traefik.http.routers.backend.rule=(Host(`${TRAEFIK_DOMAIN}`) || Host(`www.${TRAEFIK_DOMAIN}`)) && (PathPrefix(`/api`) || PathPrefix(`/admin`) || PathPrefix(`/static`) || PathPrefix(`/media`))"
       - "traefik.http.routers.backend.entrypoints=websecure"
       - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
       - "traefik.http.routers.backend.priority=10"
@@ -97,7 +97,7 @@ services:
       - "traefik.http.services.backend.loadbalancer.healthcheck.hostname=${TRAEFIK_DOMAIN}"
       - "traefik.http.services.backend.loadbalancer.healthcheck.interval=30s"
       # WebSocket — highest priority so it matches before generic PathPrefix rules
-      - "traefik.http.routers.backend-ws.rule=Host(`${TRAEFIK_DOMAIN}`) && PathPrefix(`/ws`)"
+      - "traefik.http.routers.backend-ws.rule=(Host(`${TRAEFIK_DOMAIN}`) || Host(`www.${TRAEFIK_DOMAIN}`)) && PathPrefix(`/ws`)"
       - "traefik.http.routers.backend-ws.entrypoints=websecure"
       - "traefik.http.routers.backend-ws.tls.certresolver=letsencrypt"
       - "traefik.http.routers.backend-ws.priority=20"
@@ -167,7 +167,7 @@ services:
       start_period: 10s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.static.rule=Host(`${TRAEFIK_DOMAIN}`) && (PathPrefix(`/media`) || PathPrefix(`/static`))"
+      - "traefik.http.routers.static.rule=(Host(`${TRAEFIK_DOMAIN}`) || Host(`www.${TRAEFIK_DOMAIN}`)) && (PathPrefix(`/media`) || PathPrefix(`/static`))"
       - "traefik.http.routers.static.entrypoints=websecure"
       - "traefik.http.routers.static.tls.certresolver=letsencrypt"
       - "traefik.http.routers.static.priority=30"
@@ -187,7 +187,7 @@ services:
       - chapuu_network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=Host(`${TRAEFIK_DOMAIN}`)"
+      - "traefik.http.routers.frontend.rule=Host(`${TRAEFIK_DOMAIN}`) || Host(`www.${TRAEFIK_DOMAIN}`)"
       - "traefik.http.routers.frontend.entrypoints=websecure"
       - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
       - "traefik.http.routers.frontend.priority=1"
