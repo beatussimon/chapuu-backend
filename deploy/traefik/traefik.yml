@@ -34,7 +34,6 @@ providers:
   docker:
     exposedByDefault: false
     network: chapuu_network
-    version: "1.44"
   file:
     filename: /etc/traefik/dynamic.yml
     watch: true
