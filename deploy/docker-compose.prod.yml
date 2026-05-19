@@ -164,8 +164,9 @@ services:
       start_period: 10s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.static.rule=PathPrefix(`/media`) || PathPrefix(`/static`)"
-      - "traefik.http.routers.static.entrypoints=web"
+      - "traefik.http.routers.static.rule=Host(`${TRAEFIK_DOMAIN}`) && (PathPrefix(`/media`) || PathPrefix(`/static`))"
+      - "traefik.http.routers.static.entrypoints=websecure"
+      - "traefik.http.routers.static.tls.certresolver=letsencrypt"
       - "traefik.http.routers.static.priority=30"
       - "traefik.http.services.static.loadbalancer.server.port=80"
     logging:
@@ -183,8 +184,9 @@ services:
       - chapuu_network
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
-      - "traefik.http.routers.frontend.entrypoints=web"
+      - "traefik.http.routers.frontend.rule=Host(`${TRAEFIK_DOMAIN}`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
       - "traefik.http.routers.frontend.priority=1"
       - "traefik.http.services.frontend.loadbalancer.server.port=80"
     logging:
@@ -194,6 +196,15 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  media_files:
+  static_files:
+  traefik_logs:
+  celerybeat_data:
+
+networks:
+  chapuu_network:
+    driver: bridge
+ redis_data:
   media_files:
   static_files:
   traefik_logs:
