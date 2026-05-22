@@ -13,6 +13,11 @@ class StoreReviewSerializer(serializers.ModelSerializer):
         fields = ['id', 'store', 'customer', 'customer_username', 'order', 'items_reviewed', 'customer_phone', 'delivery_location', 'fulfillment_mode', 'rating', 'comment', 'created_at']
         read_only_fields = ['customer', 'created_at']
 
+    def validate_comment(self, value):
+        if not value or not value.strip():
+            raise serializers.ValidationError("Comment text is required when leaving a review.")
+        return value
+
     def get_items_reviewed(self, obj):
         if obj.order:
             return [item.product.name for item in obj.order.items.all()]

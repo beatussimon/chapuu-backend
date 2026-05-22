@@ -8,8 +8,30 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ('id', 'username', 'password', 'role', 'phone_number', 'employed_store', 'loyalty_points')
-        read_only_fields = ('loyalty_points',)
+        fields = ('id', 'username', 'password', 'role', 'phone_number', 'employed_store', 'loyalty_points', 
+                  'first_name', 'last_name', 'email', 'accepted_liability_policy', 'policy_accepted_at')
+        read_only_fields = ('loyalty_points', 'policy_accepted_at')
+
+    def validate(self, attrs):
+        # Enforce required fields strictly on creation (Signup)
+        if not self.instance:
+            required_fields = {
+                'first_name': "First name is required.",
+                'last_name': "Last name is required.",
+                'email': "Email address is required.",
+                'phone_number': "Phone number is required.",
+                'password': "Password is required.",
+                'accepted_liability_policy': "You must accept the Terms & Conditions and Liability Policy to register."
+            }
+            errors = {}
+            for field, message in required_fields.items():
+                val = attrs.get(field)
+                if val is None or val == '' or (field == 'accepted_liability_policy' and val is not True):
+                    errors[field] = message
+            
+            if errors:
+                raise serializers.ValidationError(errors)
+        return attrs
 
     def create(self, validated_data):
         password = validated_data.pop('password', None)

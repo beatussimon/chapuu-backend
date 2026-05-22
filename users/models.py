@@ -14,8 +14,17 @@ class User(AbstractUser):
     phone_number = models.CharField(max_length=20, blank=True, null=True)
     loyalty_points = models.PositiveIntegerField(default=0)
     
+    accepted_liability_policy = models.BooleanField(default=False)
+    policy_accepted_at = models.DateTimeField(null=True, blank=True)
+
     # Optional link to a specific store for staff roles (CHEF, DELIVERY)
     employed_store = models.ForeignKey('stores.Store', on_delete=models.SET_NULL, null=True, blank=True, related_name='employees')
+
+    def save(self, *args, **kwargs):
+        from django.utils import timezone
+        if self.accepted_liability_policy and not self.policy_accepted_at:
+            self.policy_accepted_at = timezone.now()
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.username} ({self.role})"
