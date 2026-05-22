@@ -1,8 +1,12 @@
 from django.contrib import admin
-from stores.models import Store, KitchenSettings, Table, Advertisement, CurrencyConfig, StorePaymentMethod, SystemSupportConfig
+from stores.models import Store, KitchenSettings, Table, Advertisement, CurrencyConfig, StorePaymentMethod, SystemSupportConfig, StoreGalleryImage
 
 class StorePaymentMethodInline(admin.TabularInline):
     model = StorePaymentMethod
+    extra = 1
+
+class StoreGalleryImageInline(admin.TabularInline):
+    model = StoreGalleryImage
     extra = 1
 
 @admin.register(Store)
@@ -10,7 +14,7 @@ class StoreAdmin(admin.ModelAdmin):
     list_display = ('name', 'owner', 'store_type', 'is_active', 'created_at')
     list_filter = ('store_type', 'is_active')
     search_fields = ('name', 'owner__username')
-    inlines = [StorePaymentMethodInline]
+    inlines = [StorePaymentMethodInline, StoreGalleryImageInline]
 
 @admin.register(KitchenSettings)
 class KitchenSettingsAdmin(admin.ModelAdmin):
@@ -32,3 +36,9 @@ class CurrencyConfigAdmin(admin.ModelAdmin):
 @admin.register(SystemSupportConfig)
 class SystemSupportConfigAdmin(admin.ModelAdmin):
     list_display = ('support_phone', 'support_email', 'support_sms', 'support_whatsapp', 'updated_at')
+
+@admin.register(StoreGalleryImage)
+class StoreGalleryImageAdmin(admin.ModelAdmin):
+    list_display = ('id', 'store', 'image', 'caption', 'created_at')
+    list_filter = ('store', 'created_at')
+    search_fields = ('store__name', 'caption')

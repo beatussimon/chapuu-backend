@@ -168,3 +168,23 @@ class SystemSupportConfig(models.Model):
     def get_solo(cls):
         obj, created = cls.objects.get_or_create(id=1)
         return obj
+
+class StoreGalleryImage(models.Model):
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='gallery_images')
+    image = models.ImageField(upload_to='store_galleries/')
+    caption = models.CharField(max_length=255, blank=True, null=True, help_text="Short description of the photo")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        # Auto-compress store gallery image to WebP on upload
+        if self.image and hasattr(self.image, 'file'):
+            try:
+                compressed = compress_image(self.image)
+                if compressed and compressed is not self.image:
+                    self.image = compressed
+            except Exception:
+                pass
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Gallery Image for {self.store.name} ({self.id})"

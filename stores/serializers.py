@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod, SystemSupportConfig
+from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod, SystemSupportConfig, StoreGalleryImage
 
 class KitchenSettingsSerializer(serializers.ModelSerializer):
     class Meta:
@@ -21,9 +21,25 @@ class StorePaymentMethodSerializer(serializers.ModelSerializer):
             return obj.image.url
         return None
 
+class StoreGalleryImageSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = StoreGalleryImage
+        fields = ['id', 'store', 'image', 'image_url', 'caption', 'created_at']
+
+    def get_image_url(self, obj):
+        if obj.image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return None
+
 class StoreSerializer(serializers.ModelSerializer):
     kitchen_settings = KitchenSettingsSerializer(read_only=True)
     payment_methods = StorePaymentMethodSerializer(many=True, read_only=True)
+    gallery_images = StoreGalleryImageSerializer(many=True, read_only=True)
     image_url = serializers.SerializerMethodField()
     
     class Meta:
@@ -31,7 +47,8 @@ class StoreSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'owner', 'name', 'store_type', 'location', 'contact_phone', 
             'contact_email', 'image', 'image_url', 'is_active', 'is_open', 
-            'base_delivery_fee', 'created_at', 'kitchen_settings', 'payment_methods'
+            'base_delivery_fee', 'created_at', 'kitchen_settings', 'payment_methods',
+            'gallery_images'
         ]
 
     def get_image_url(self, obj):

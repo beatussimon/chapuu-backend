@@ -2,8 +2,8 @@ from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db.models import Q
-from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod, SystemSupportConfig
-from stores.serializers import StoreSerializer, KitchenSettingsSerializer, AdvertisementSerializer, CurrencyConfigSerializer, TableSerializer, NoticeSerializer, StorePaymentMethodSerializer, SystemSupportConfigSerializer
+from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod, SystemSupportConfig, StoreGalleryImage
+from stores.serializers import StoreSerializer, KitchenSettingsSerializer, AdvertisementSerializer, CurrencyConfigSerializer, TableSerializer, NoticeSerializer, StorePaymentMethodSerializer, SystemSupportConfigSerializer, StoreGalleryImageSerializer
 from stores.services import KitchenEngine
 from reviews.models import StoreReview
 from reviews.serializers import StoreReviewSerializer
@@ -49,6 +49,39 @@ class StorePaymentMethodViewSet(viewsets.ModelViewSet):
         if self.request.user.role != 'ADMIN' and instance.store.owner != self.request.user:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only delete payment methods for your own store.")
+        instance.delete()
+
+class StoreGalleryImageViewSet(viewsets.ModelViewSet):
+    serializer_class = StoreGalleryImageSerializer
+    permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get_queryset(self):
+        queryset = StoreGalleryImage.objects.all()
+        store_id = self.request.query_params.get('store', None)
+        if store_id:
+            queryset = queryset.filter(store_id=store_id)
+        return queryset
+
+    def perform_create(self, serializer):
+        store = serializer.validated_data.get('store')
+        
+        # 1. Authorization check: Only store owner or Admin
+        if self.request.user.role != 'ADMIN' and store.owner != self.request.user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only add gallery images to your own store.")
+            
+        # 2. Strict 10-image limit check
+        if store.gallery_images.count() >= 10:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError("You have reached the maximum limit of 10 gallery images for this store.")
+            
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        # Authorization check: Only store owner or Admin
+        if self.request.user.role != 'ADMIN' and instance.store.owner != self.request.user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only delete gallery images for your own store.")
         instance.delete()
 
 class NoticeViewSet(viewsets.ModelViewSet):
