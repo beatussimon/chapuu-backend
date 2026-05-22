@@ -145,3 +145,26 @@ class Notice(models.Model):
 
     def __str__(self):
         return f"Notice: {self.title}"
+
+class SystemSupportConfig(models.Model):
+    support_phone = models.CharField(max_length=50, default="+255 700 000 000", help_text="Support telephone number (tel:)")
+    support_email = models.EmailField(default="support@chapuu.co.tz", help_text="Support email address (mailto:)")
+    support_sms = models.CharField(max_length=50, default="+255 700 000 000", help_text="Support SMS number (sms:)")
+    support_whatsapp = models.CharField(max_length=100, default="255700000000", help_text="WhatsApp number (without '+' or leading zeros) or link")
+    policy_warning = models.TextField(
+        default="Violation of the system's policy (such as consecutive delivery locking or fraud) can get your store taken down permanently.",
+        help_text="Policy warning shown to sellers for violations."
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "System Support Config"
+        verbose_name_plural = "System Support Configs"
+
+    def __str__(self):
+        return f"System Support Config (Last updated: {self.updated_at})"
+
+    @classmethod
+    def get_solo(cls):
+        obj, created = cls.objects.get_or_create(id=1)
+        return obj

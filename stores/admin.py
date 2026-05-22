@@ -1,5 +1,5 @@
 from django.contrib import admin
-from stores.models import Store, KitchenSettings, Table, Advertisement, CurrencyConfig, StorePaymentMethod
+from stores.models import Store, KitchenSettings, Table, Advertisement, CurrencyConfig, StorePaymentMethod, SystemSupportConfig
 
 class StorePaymentMethodInline(admin.TabularInline):
     model = StorePaymentMethod
@@ -28,3 +28,7 @@ class AdvertisementAdmin(admin.ModelAdmin):
 @admin.register(CurrencyConfig)
 class CurrencyConfigAdmin(admin.ModelAdmin):
     list_display = ('code', 'name', 'symbol', 'rate_to_base', 'is_default', 'is_active')
+
+@admin.register(SystemSupportConfig)
+class SystemSupportConfigAdmin(admin.ModelAdmin):
+    list_display = ('support_phone', 'support_email', 'support_sms', 'support_whatsapp', 'updated_at')

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod
+from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod, SystemSupportConfig
 
 class KitchenSettingsSerializer(serializers.ModelSerializer):
     class Meta:
@@ -72,4 +72,9 @@ class NoticeSerializer(serializers.ModelSerializer):
         if user.is_authenticated:
             return obj.read_by.filter(id=user.id).exists()
         return False
+
+class SystemSupportConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SystemSupportConfig
+        fields = '__all__'
 

@@ -2,8 +2,8 @@ from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db.models import Q
-from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod
-from stores.serializers import StoreSerializer, KitchenSettingsSerializer, AdvertisementSerializer, CurrencyConfigSerializer, TableSerializer, NoticeSerializer, StorePaymentMethodSerializer
+from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod, SystemSupportConfig
+from stores.serializers import StoreSerializer, KitchenSettingsSerializer, AdvertisementSerializer, CurrencyConfigSerializer, TableSerializer, NoticeSerializer, StorePaymentMethodSerializer, SystemSupportConfigSerializer
 from stores.services import KitchenEngine
 from reviews.models import StoreReview
 from reviews.serializers import StoreReviewSerializer
@@ -217,4 +217,22 @@ class StoreViewSet(viewsets.ModelViewSet):
         store = self.get_object()
         reviews = StoreReview.objects.filter(store=store).order_by('-created_at')
         serializer = StoreReviewSerializer(reviews, many=True)
+        return Response(serializer.data)
+
+class SystemSupportConfigViewSet(viewsets.ViewSet):
+    permission_classes = [permissions.AllowAny]
+
+    def list(self, request):
+        config = SystemSupportConfig.get_solo()
+        serializer = SystemSupportConfigSerializer(config, context={'request': request})
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post', 'put', 'patch'], permission_classes=[permissions.IsAuthenticated])
+    def update_config(self, request):
+        if request.user.role != 'ADMIN':
+            return Response({"error": "Permission denied. Only admins can update support configuration."}, status=403)
+        config = SystemSupportConfig.get_solo()
+        serializer = SystemSupportConfigSerializer(config, data=request.data, partial=True, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
         return Response(serializer.data)
