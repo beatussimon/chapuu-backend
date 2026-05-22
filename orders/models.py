@@ -49,6 +49,8 @@ class Order(models.Model):
     # Handoff codes
     delivery_code = models.CharField(max_length=6, blank=True, null=True, help_text="6-digit verification code")
     delivery_code_attempts = models.PositiveIntegerField(default=0, help_text="Verification attempts count")
+    is_locked = models.BooleanField(default=False, help_text="Locked due to exceeding maximum verification attempts.")
+    is_suspicious = models.BooleanField(default=False, help_text="Flagged as suspicious due to failed verification attempts.")
 
     # Scheduled order preparation controls
     prep_time_option = models.CharField(

@@ -12,7 +12,7 @@ class OrderEventLogInline(admin.TabularInline):
 
 @admin.register(Order)
 class OrderAdmin(admin.ModelAdmin):
-    list_display = ('id', 'store', 'customer', 'state', 'fulfillment_mode', 'total_amount', 'created_at')
-    list_filter = ('state', 'fulfillment_mode', 'store')
+    list_display = ('id', 'store', 'customer', 'state', 'fulfillment_mode', 'total_amount', 'is_locked', 'is_suspicious', 'created_at')
+    list_filter = ('state', 'fulfillment_mode', 'store', 'is_locked', 'is_suspicious')
     search_fields = ('id', 'customer__username', 'customer_phone')
     inlines = [OrderItemInline, OrderEventLogInline]

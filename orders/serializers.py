@@ -36,12 +36,12 @@ class OrderSerializer(serializers.ModelSerializer):
             'id', 'store', 'store_name', 'store_phone', 'customer', 'customer_name', 'table', 'table_number', 'reservation', 'reservation_time', 'reservation_status', 'reservation_guest_count', 'state', 
             'fulfillment_mode', 'customer_phone', 'delivery_location', 'total_amount', 'delivery_fee', 'created_at', 
             'updated_at', 'scheduled_time', 'is_instant_payment', 'items', 'payment_message', 'payment_receipt', 'has_review', 'review_details',
-            'delivery_code', 'delivery_code_attempts', 'prep_time_option', 'scheduled_start_time', 
+            'delivery_code', 'delivery_code_attempts', 'is_locked', 'is_suspicious', 'prep_time_option', 'scheduled_start_time', 
             'reschedule_requested_time', 'reschedule_requested_start_time', 'reschedule_status'
         ]
         read_only_fields = [
             'state', 'total_amount', 'customer', 'created_at', 'updated_at', 
-            'delivery_code', 'delivery_code_attempts', 'reschedule_status'
+            'delivery_code', 'delivery_code_attempts', 'is_locked', 'is_suspicious', 'reschedule_status'
         ]
 
     def get_has_review(self, obj):
@@ -167,6 +167,14 @@ class OrderSerializer(serializers.ModelSerializer):
                     pass
         
         return order
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        # Handoff PIN Protection: Only show delivery code if order is ready, out for delivery, or completed
+        if instance.state not in ['READY', 'OUT_FOR_DELIVERY', 'COMPLETED']:
+            representation['delivery_code'] = "------"
+        return representation
+
 
 class PublicOrderItemSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source='product.name', read_only=True)

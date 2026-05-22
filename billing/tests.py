@@ -133,6 +133,7 @@ class BillingAndVerificationTests(TestCase):
         
         # Reset attempts and confirm with correct code
         order.delivery_code_attempts = 0
+        order.is_locked = False
         order.save()
         
         response = self.client.post(confirm_url, {'code': order.delivery_code}, format='json')
@@ -144,6 +145,50 @@ class BillingAndVerificationTests(TestCase):
         ledger = CommissionLedgerEntry.objects.filter(order=order).first()
         self.assertIsNotNone(ledger)
         self.assertEqual(ledger.commission_amount, Decimal('3.00')) # 100 * 0.03
+
+    def test_staff_manual_verify_override(self):
+        """
+        Verify that authorized staff can perform a manual override on locked/suspicious orders:
+        - Order state is transitioned to COMPLETED
+        - Lock is resolved (is_locked = False, attempts = 0)
+        - is_suspicious is kept permanently set to True for audit log
+        - 3% platform commission is correctly collected
+        """
+        order = Order.objects.create(
+            store=self.store,
+            customer=self.customer,
+            fulfillment_mode='DELIVERY',
+            total_amount=Decimal('200.00'),
+            state=Order.State.OUT_FOR_DELIVERY,
+            delivery_code='123456',
+            delivery_code_attempts=5,
+            is_locked=True,
+            is_suspicious=True
+        )
+
+        manual_verify_url = reverse('order-staff-manual-verify', kwargs={'pk': order.id})
+        
+        # Unauthorized customer attempt should be blocked
+        self.client.force_authenticate(user=self.customer)
+        response = self.client.post(manual_verify_url, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Authorized seller attempt should succeed
+        self.client.force_authenticate(user=self.seller)
+        response = self.client.post(manual_verify_url, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        order.refresh_from_db()
+        self.assertEqual(order.state, Order.State.COMPLETED)
+        self.assertFalse(order.is_locked)
+        self.assertEqual(order.delivery_code_attempts, 0)
+        self.assertTrue(order.is_suspicious)  # Remains True for security auditing
+
+        # Verify platform cut of 3% is correctly logged
+        ledger = CommissionLedgerEntry.objects.filter(order=order).first()
+        self.assertIsNotNone(ledger)
+        self.assertEqual(ledger.commission_amount, Decimal('6.00')) # 200 * 0.03
+
 
     def test_refund_completed_orders_blocked(self):
         """

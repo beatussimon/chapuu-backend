@@ -165,17 +165,53 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         if order.state not in [Order.State.OUT_FOR_DELIVERY, Order.State.READY]:
             return Response({"error": "Order not ready for handoff verification"}, status=status.HTTP_400_BAD_REQUEST)
-        if order.delivery_code_attempts >= 5:
-            return Response({"error": "Too many attempts. Order locked. Please contact support."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            
+        if order.is_locked or order.delivery_code_attempts >= 5:
+            return Response({"error": "Too many failed attempts. Order is locked. Please contact store support to verify manually."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
             
         if not order.delivery_code or code != order.delivery_code:
             order.delivery_code_attempts += 1
-            order.save(update_fields=['delivery_code_attempts'])
-            return Response({"error": f"Invalid code. {5 - order.delivery_code_attempts} attempts remaining."}, status=status.HTTP_400_BAD_REQUEST)
+            if order.delivery_code_attempts >= 5:
+                order.is_locked = True
+                order.is_suspicious = True
+                order.save(update_fields=['delivery_code_attempts', 'is_locked', 'is_suspicious'])
+                return Response({"error": "Too many failed attempts. Order is locked. Please contact store support to verify manually."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            else:
+                order.save(update_fields=['delivery_code_attempts'])
+                return Response({"error": f"Invalid code. {5 - order.delivery_code_attempts} attempts remaining."}, status=status.HTTP_400_BAD_REQUEST)
             
         # Transition to COMPLETED with bypass flag
         OrderStateMachine.transition_order(order, Order.State.COMPLETED, performed_by=request.user, bypass_verification=True)
         return Response({"status": "Fulfillment verified and completed"})
+
+    @action(detail=True, methods=['post'], url_path='staff_manual_verify', permission_classes=[permissions.IsAuthenticated])
+    def staff_manual_verify(self, request, pk=None):
+        order = self.get_object()
+        
+        # Verify the user is authorized store staff or store owner
+        is_authorized = request.user.role in ['SELLER', 'ADMIN', 'CHEF', 'ACCOUNTANT'] or order.store.owner == request.user
+        if not is_authorized:
+            return Response({"error": "Permission denied. Only store staff can manually override and verify handoffs."}, status=status.HTTP_403_FORBIDDEN)
+            
+        if order.state not in [Order.State.OUT_FOR_DELIVERY, Order.State.READY]:
+            return Response({"error": "Order cannot be manually verified in its current state."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Unlock order, reset attempts, but KEEP is_suspicious flag permanently set
+        order.is_locked = False
+        order.delivery_code_attempts = 0
+        order.is_suspicious = True
+        order.save(update_fields=['is_locked', 'delivery_code_attempts', 'is_suspicious'])
+        
+        # Transition directly to COMPLETED (accruing the 3% platform commission naturally)
+        OrderStateMachine.transition_order(
+            order, 
+            Order.State.COMPLETED, 
+            performed_by=request.user, 
+            notes=f"Manual handoff override performed by staff: {request.user.username}. Lock resolved.",
+            bypass_verification=True
+        )
+        
+        return Response({"status": "Manual fulfillment override completed. 3% commission cut logged."})
 
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def request_reschedule(self, request, pk=None):
