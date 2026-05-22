@@ -1,20 +1,46 @@
 from rest_framework import serializers
 from reservations.models import Reservation, TableSession
 
+class ReservationOrderSerializer(serializers.Serializer):
+    id = serializers.IntegerField(read_only=True)
+    state = serializers.CharField(read_only=True)
+    total_amount = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+    items = serializers.SerializerMethodField()
+    
+    def get_items(self, obj):
+        return [
+            {
+                "id": item.id,
+                "product_id": item.product.id,
+                "product_name": item.product.name,
+                "quantity": item.quantity,
+                "unit_price": float(item.unit_price)
+            }
+            for item in obj.items.all()
+        ]
+
 class ReservationSerializer(serializers.ModelSerializer):
     customer_name = serializers.CharField(source='customer.username', read_only=True)
     table_number = serializers.CharField(source='table.number', read_only=True)
     session_started_at = serializers.SerializerMethodField()
     can_modify = serializers.SerializerMethodField()
+    linked_order = serializers.SerializerMethodField()
     
     class Meta:
         model = Reservation
         fields = [
             'id', 'store', 'customer', 'customer_name', 'table', 'table_number', 
             'reservation_time', 'duration_minutes', 'guest_count', 
-            'status', 'deposit_amount', 'created_at', 'session_started_at', 'can_modify'
+            'status', 'deposit_amount', 'created_at', 'session_started_at', 'can_modify',
+            'linked_order'
         ]
         read_only_fields = ['customer', 'status', 'deposit_amount', 'created_at']
+
+    def get_linked_order(self, obj):
+        linked_order = getattr(obj, 'linked_order', None)
+        if linked_order:
+            return ReservationOrderSerializer(linked_order).data
+        return None
 
     def get_can_modify(self, obj):
         from django.utils import timezone

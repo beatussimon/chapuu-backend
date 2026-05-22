@@ -60,6 +60,10 @@ class KitchenSettings(models.Model):
     max_concurrent_prep_slots = models.PositiveIntegerField(default=10)
     is_kitchen_paused = models.BooleanField(default=False)
     auto_approve_orders = models.BooleanField(default=True)
+    default_prep_time_minutes = models.PositiveIntegerField(
+        default=30,
+        help_text="Fallback prep time in minutes if product estimated_prep_time_minutes is not set"
+    )
 
     def __str__(self):
         return f"Kitchen Settings for {self.store.name}"

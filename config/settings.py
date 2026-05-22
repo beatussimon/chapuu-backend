@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     'payments',
     'reviews',
     'rest_framework_simplejwt.token_blacklist',
+    'billing',
 ]
 
 MIDDLEWARE = [
@@ -255,5 +256,13 @@ CELERY_BEAT_SCHEDULE = {
     'expire-no-show-reservations': {
         'task': 'orders.tasks.expire_no_show_reservations',
         'schedule': crontab(minute='*/10'),
+    },
+    'trigger-scheduled-orders': {
+        'task': 'billing.tasks.trigger_scheduled_orders',
+        'schedule': crontab(minute='*'),
+    },
+    'generate-monthly-invoices': {
+        'task': 'billing.tasks.generate_monthly_invoices',
+        'schedule': crontab(minute=0, hour=0, day_of_month=1),
     },
 }

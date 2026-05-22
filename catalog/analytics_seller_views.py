@@ -51,26 +51,70 @@ class SellerAnalyticsViewSet(viewsets.ViewSet):
         avg_order_value = completed.aggregate(avg=Avg('total_amount'))['avg'] or 0
         cancelled_orders = all_orders.filter(state='CANCELLED').count()
 
+        # Query CommissionLedgerEntry for the period
+        from billing.models import CommissionLedgerEntry
+        ledger_qs = CommissionLedgerEntry.objects.filter(
+            created_at__date__gte=start,
+            created_at__date__lte=end,
+        )
+        if user.role == 'SELLER':
+            ledger_qs = ledger_qs.filter(store__owner=user)
+
+        total_commission = ledger_qs.aggregate(total=Sum('commission_amount'))['total'] or 0
+        net_revenue = float(total_revenue) - float(total_commission)
+
         kpi = {
             'total_orders': total_orders,
             'completed_orders': completed_orders,
             'total_revenue': float(total_revenue),
+            'total_commission': float(total_commission),
+            'net_revenue': float(net_revenue),
             'avg_order_value': round(float(avg_order_value), 2),
             'cancelled_orders': cancelled_orders,
             'completion_rate': round((completed_orders / total_orders * 100) if total_orders > 0 else 0, 1),
         }
 
         # ── Revenue by Day ──
-        revenue_by_day = list(
+        # Group completed orders daily revenue
+        daily_data = {}
+        for item in (
             completed
             .annotate(day=TruncDate('created_at'))
             .values('day')
             .annotate(revenue=Sum('total_amount'), count=Count('id'))
-            .order_by('day')
-        )
-        for item in revenue_by_day:
-            item['day'] = item['day'].isoformat()
-            item['revenue'] = float(item['revenue'])
+        ):
+            day_str = item['day'].isoformat()
+            daily_data[day_str] = {
+                'day': day_str,
+                'revenue': float(item['revenue']),
+                'count': item['count'],
+                'commission': 0.0,
+                'net_revenue': float(item['revenue'])
+            }
+            
+        # Merge in commission by day
+        for item in (
+            ledger_qs
+            .annotate(day=TruncDate('created_at'))
+            .values('day')
+            .annotate(commission=Sum('commission_amount'))
+        ):
+            day_str = item['day'].isoformat()
+            comm = float(item['commission'])
+            if day_str in daily_data:
+                daily_data[day_str]['commission'] = comm
+                daily_data[day_str]['net_revenue'] = daily_data[day_str]['revenue'] - comm
+            else:
+                daily_data[day_str] = {
+                    'day': day_str,
+                    'revenue': 0.0,
+                    'count': 0,
+                    'commission': comm,
+                    'net_revenue': -comm
+                }
+                
+        # Convert map to sorted list by date string
+        revenue_by_day = sorted(daily_data.values(), key=lambda x: x['day'])
 
         # ── Orders by Hour ──
         orders_by_hour = list(

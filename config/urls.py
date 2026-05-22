@@ -89,6 +89,7 @@ urlpatterns = [
     path('api/register/', CustomerRegistrationView.as_view(), name='api_register'),
     path('api/auth/users/me/', CurrentUserView.as_view(), name='current_user'),
     path('api/health/', health_check, name='health'),
+    path('api/billing/', include('billing.urls')),
     path('api/', include(router.urls)),
 ]
 

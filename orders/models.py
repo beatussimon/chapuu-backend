@@ -46,6 +46,27 @@ class Order(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     scheduled_time = models.DateTimeField(null=True, blank=True)
 
+    # Handoff codes
+    delivery_code = models.CharField(max_length=6, blank=True, null=True, help_text="6-digit verification code")
+    delivery_code_attempts = models.PositiveIntegerField(default=0, help_text="Verification attempts count")
+
+    # Scheduled order preparation controls
+    prep_time_option = models.CharField(
+        max_length=15,
+        choices=[('DYNAMIC', 'Dynamic (System-Calculated)'), ('CUSTOM', 'Custom Start Time')],
+        default='DYNAMIC'
+    )
+    scheduled_start_time = models.DateTimeField(null=True, blank=True, help_text="When prep should begin")
+
+    # Reschedule request tracking
+    reschedule_requested_time = models.DateTimeField(null=True, blank=True, help_text="Requested scheduled_time")
+    reschedule_requested_start_time = models.DateTimeField(null=True, blank=True, help_text="Requested prep start time")
+    reschedule_status = models.CharField(
+        max_length=20,
+        choices=[('PENDING', 'Pending Approval'), ('APPROVED', 'Approved'), ('REJECTED', 'Rejected')],
+        null=True, blank=True
+    )
+
     is_instant_payment = models.BooleanField(
         default=False,
         help_text=(

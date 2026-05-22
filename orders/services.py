@@ -20,14 +20,14 @@ class OrderStateMachine:
         Order.State.PREPARING: [Order.State.READY, Order.State.CANCELLED, Order.State.REFUNDED],
         Order.State.READY: [Order.State.OUT_FOR_DELIVERY, Order.State.COMPLETED, Order.State.REFUNDED],
         Order.State.OUT_FOR_DELIVERY: [Order.State.COMPLETED, Order.State.REFUNDED],
-        Order.State.COMPLETED: [Order.State.REFUNDED],
+        Order.State.COMPLETED: [],  # Strict block: completed orders are non-refundable and final
         Order.State.CANCELLED: [],
         Order.State.EXPIRED: [],
         Order.State.REFUNDED: [],
     }
 
     @classmethod
-    def transition_order(cls, order: Order, new_state: str, notes: str = "", performed_by=None) -> Order:
+    def transition_order(cls, order: Order, new_state: str, notes: str = "", performed_by=None, bypass_verification: bool = False) -> Order:
         """
         Transitions the order to a new state atomically, logging the event.
         Validates whether the transition is allowed.
@@ -43,6 +43,11 @@ class OrderStateMachine:
         if new_state not in valid_targets:
             raise ValidationError(f"Invalid transition from {current_state} to {new_state}.")
 
+        # Block direct completions for verification-bound orders unless verification bypassed
+        if new_state == Order.State.COMPLETED and not bypass_verification:
+            if order.fulfillment_mode in [Order.FulfillmentMode.DELIVERY, Order.FulfillmentMode.PICKUP, Order.FulfillmentMode.TAKEAWAY]:
+                raise ValidationError("Handoff verification code required to complete this order.")
+
         with transaction.atomic():
             locked_order = Order.objects.select_for_update().get(id=order.id)
             
@@ -51,12 +56,42 @@ class OrderStateMachine:
             
             previous_state = locked_order.state
             locked_order.state = new_state
-            locked_order.save(update_fields=['state', 'updated_at'])
+            
+            update_fields = ['state', 'updated_at']
 
-            if new_state == Order.State.PAID and locked_order.customer:
-                from django.db.models import F
-                locked_order.customer.__class__.objects.filter(pk=locked_order.customer_id).update(
-                    loyalty_points=F('loyalty_points') + int(locked_order.total_amount)
+            # Generate handoff code when entering delivery/ready states for target modes
+            should_generate_code = False
+            if new_state == Order.State.OUT_FOR_DELIVERY and locked_order.fulfillment_mode == Order.FulfillmentMode.DELIVERY:
+                should_generate_code = True
+            elif new_state == Order.State.READY and locked_order.fulfillment_mode in [Order.FulfillmentMode.PICKUP, Order.FulfillmentMode.TAKEAWAY]:
+                should_generate_code = True
+
+            if should_generate_code:
+                if not locked_order.delivery_code:
+                    import secrets
+                    locked_order.delivery_code = ''.join(secrets.choice('0123456789') for _ in range(6))
+                    locked_order.delivery_code_attempts = 0
+                    update_fields.extend(['delivery_code', 'delivery_code_attempts'])
+
+            locked_order.save(update_fields=update_fields)
+
+            if new_state == Order.State.PAID:
+                if locked_order.customer:
+                    from django.db.models import F
+                    locked_order.customer.__class__.objects.filter(pk=locked_order.customer_id).update(
+                        loyalty_points=F('loyalty_points') + int(locked_order.total_amount)
+                    )
+
+            # Accrue 3% platform commission on order completion
+            if new_state == Order.State.COMPLETED:
+                from billing.models import CommissionLedgerEntry
+                from decimal import Decimal
+                CommissionLedgerEntry.objects.create(
+                    order=locked_order,
+                    store=locked_order.store,
+                    order_amount=locked_order.total_amount,
+                    commission_amount=locked_order.total_amount * Decimal('0.03'),
+                    entry_type=CommissionLedgerEntry.EntryType.COMMISSION
                 )
 
             OrderEventLog.objects.create(

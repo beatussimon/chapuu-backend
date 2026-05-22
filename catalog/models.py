@@ -49,6 +49,43 @@ class Product(models.Model):
                 pass
         super().save(*args, **kwargs)
 
+    def get_average_prep_time(self):
+        """
+        Intelligently calculates the average preparation time for this specific product based on past orders.
+        Falls back to estimated_prep_time_minutes if not enough historical data exists.
+        """
+        from orders.models import OrderEventLog
+        
+        # Query distinct completed order IDs that contained this product
+        order_ids = self.order_items.filter(order__state='COMPLETED').values_list('order_id', flat=True).distinct()
+        
+        if len(order_ids) >= 3:
+            preparing_logs = OrderEventLog.objects.filter(order_id__in=order_ids, new_state='PREPARING')
+            ready_logs = OrderEventLog.objects.filter(order_id__in=order_ids, new_state='READY')
+            
+            prep_times = []
+            for order_id in order_ids:
+                p_log = preparing_logs.filter(order_id=order_id).first()
+                r_log = ready_logs.filter(order_id=order_id).first()
+                if p_log and r_log and r_log.created_at > p_log.created_at:
+                    duration = (r_log.created_at - p_log.created_at).total_seconds() / 60.0
+                    prep_times.append(duration)
+            
+            if len(prep_times) >= 3:
+                avg_time = sum(prep_times) / len(prep_times)
+                return max(int(avg_time), 1)  # Ensure at least 1 minute
+                
+        # Fallback to estimated prep time
+        fallback = self.estimated_prep_time_minutes
+        if fallback == 0:
+            from stores.models import KitchenSettings
+            try:
+                kitchen_settings = self.store.kitchen_settings
+                fallback = kitchen_settings.default_prep_time_minutes
+            except KitchenSettings.DoesNotExist:
+                fallback = 15  # Default fallback duration
+        return fallback
+
     def __str__(self):
         return self.name
 

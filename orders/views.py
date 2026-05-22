@@ -49,8 +49,15 @@ class OrderViewSet(viewsets.ModelViewSet):
             queryset = Order.objects.select_related('review').all()
         elif user.role == 'SELLER':
             queryset = Order.objects.select_related('review').filter(store__owner=user)
-        elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY'] and user.employed_store:
-            queryset = Order.objects.select_related('review').filter(store=user.employed_store)
+        elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY']:
+            store = user.employed_store
+            if not store:
+                from stores.models import Store
+                store = Store.objects.first()
+            if store:
+                queryset = Order.objects.select_related('review').filter(store=store)
+            else:
+                queryset = Order.objects.none()
         else:
             queryset = Order.objects.select_related('review').filter(customer=user)
 
@@ -74,6 +81,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             # Payment collected in person
             Payment.objects.create(
                 order=order,
+                reservation=order.reservation,
                 amount=order.total_amount,
                 status=Payment.Status.WAIVED,
                 notes=f"Walk-in instant payment collected by {user.username}."
@@ -90,6 +98,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             # Standard flow
             Payment.objects.create(
                 order=order,
+                reservation=order.reservation,
                 amount=order.total_amount,
                 status=Payment.Status.PENDING
             )
@@ -103,10 +112,126 @@ class OrderViewSet(viewsets.ModelViewSet):
         if request.user != order.customer and request.user != order.store.owner and request.user.role != 'ADMIN':
             return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
         try:
-            OrderStateMachine.transition_order(order, Order.State.CANCELLED, notes="Cancelled via API.")
+            # If order is PAID, scheduled, and cancelled by customer: apply 6% cancellation fee
+            if order.state == Order.State.PAID and order.scheduled_time is not None and request.user == order.customer:
+                from decimal import Decimal
+                from billing.models import CommissionLedgerEntry
+                from payments.models import Refund, Payment
+                
+                # Calculate 6% cancellation fee
+                platform_share = order.total_amount * Decimal('0.03')
+                refund_amount = order.total_amount * Decimal('0.94')
+                
+                # Cancel the order first
+                OrderStateMachine.transition_order(order, Order.State.CANCELLED, notes="Scheduled order cancelled by customer. 6% fee applied.", performed_by=request.user)
+                
+                # Record platform's 3% share in the commission ledger
+                CommissionLedgerEntry.objects.create(
+                    order=order,
+                    store=order.store,
+                    order_amount=order.total_amount,
+                    commission_amount=platform_share,
+                    entry_type=CommissionLedgerEntry.EntryType.CANCELLATION_FEE
+                )
+                
+                # Record refund object in the DB for tracking
+                payment = order.payments.filter(status__in=[Payment.Status.VERIFIED, Payment.Status.WAIVED]).first()
+                if not payment:
+                    payment = order.payments.first()
+                if payment:
+                    Refund.objects.create(
+                        payment=payment,
+                        amount=refund_amount,
+                        reason="Scheduled order customer cancellation. 6% cancellation fee applied.",
+                        is_successful=False
+                    )
+                
+                return Response({"status": "Scheduled order cancelled. 6% cancellation fee applied. 94% refund recorded."})
+
+            OrderStateMachine.transition_order(order, Order.State.CANCELLED, notes="Cancelled via API.", performed_by=request.user)
             return Response({"status": "order cancelled"})
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=True, methods=['post'], url_path='confirm_delivery', permission_classes=[permissions.IsAuthenticated])
+    def confirm_delivery(self, request, pk=None):
+        order = self.get_object()
+        code = request.data.get('code', '')
+        
+        # Verify the user is staff or delivery driver
+        is_staff = request.user.role in ['SELLER', 'ADMIN', 'DELIVERY', 'CHEF', 'ACCOUNTANT'] or order.store.owner == request.user
+        if not is_staff:
+            return Response({"error": "Permission denied. Only staff or delivery personnel can confirm handoffs."}, status=status.HTTP_403_FORBIDDEN)
+
+        if order.state not in [Order.State.OUT_FOR_DELIVERY, Order.State.READY]:
+            return Response({"error": "Order not ready for handoff verification"}, status=status.HTTP_400_BAD_REQUEST)
+        if order.delivery_code_attempts >= 5:
+            return Response({"error": "Too many attempts. Order locked. Please contact support."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+            
+        if not order.delivery_code or code != order.delivery_code:
+            order.delivery_code_attempts += 1
+            order.save(update_fields=['delivery_code_attempts'])
+            return Response({"error": f"Invalid code. {5 - order.delivery_code_attempts} attempts remaining."}, status=status.HTTP_400_BAD_REQUEST)
+            
+        # Transition to COMPLETED with bypass flag
+        OrderStateMachine.transition_order(order, Order.State.COMPLETED, performed_by=request.user, bypass_verification=True)
+        return Response({"status": "Fulfillment verified and completed"})
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def request_reschedule(self, request, pk=None):
+        order = self.get_object()
+        if order.customer != request.user:
+            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+        if order.state != Order.State.PAID or order.scheduled_time is None:
+            return Response({"error": "Only upcoming paid scheduled orders can be rescheduled"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        new_scheduled_time = request.data.get('scheduled_time')
+        new_start_time = request.data.get('scheduled_start_time')
+        
+        if not new_scheduled_time:
+            return Response({"error": "scheduled_time is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        from django.utils.dateparse import parse_datetime
+        from django.utils import timezone
+        
+        parsed_scheduled_time = parse_datetime(new_scheduled_time) if isinstance(new_scheduled_time, str) else new_scheduled_time
+        if not parsed_scheduled_time:
+            return Response({"error": "Invalid scheduled_time format"}, status=status.HTTP_400_BAD_REQUEST)
+
+        if parsed_scheduled_time <= timezone.now():
+            return Response({"error": "New scheduled time must be in the future"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        order.reschedule_requested_time = new_scheduled_time
+        order.reschedule_requested_start_time = new_start_time
+        order.reschedule_status = 'PENDING'
+        order.save(update_fields=['reschedule_requested_time', 'reschedule_requested_start_time', 'reschedule_status'])
+        
+        # Broadcast notice to store
+        OrderStateMachine.emit_update(order)
+        return Response({"status": "Reschedule request submitted", "reschedule_status": order.reschedule_status})
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def respond_reschedule(self, request, pk=None):
+        order = self.get_object()
+        is_staff = request.user.role in ['SELLER', 'ADMIN', 'CHEF'] or order.store.owner == request.user
+        if not is_staff:
+            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+            
+        if order.reschedule_status != 'PENDING':
+            return Response({"error": "No pending reschedule request exists for this order"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        approve = request.data.get('approve', False)
+        if approve:
+            order.scheduled_time = order.reschedule_requested_time
+            order.scheduled_start_time = order.reschedule_requested_start_time
+            order.reschedule_status = 'APPROVED'
+            order.save(update_fields=['scheduled_time', 'scheduled_start_time', 'reschedule_status'])
+        else:
+            order.reschedule_status = 'REJECTED'
+            order.save(update_fields=['reschedule_status'])
+            
+        OrderStateMachine.emit_update(order)
+        return Response({"status": f"Reschedule request {'approved' if approve else 'rejected'}", "reschedule_status": order.reschedule_status})
 
     @action(detail=True, methods=['post'], url_path=r'items/(?P<item_id>\d+)/ready', permission_classes=[permissions.IsAuthenticated])
     def mark_item_ready(self, request, pk=None, item_id=None):
@@ -153,6 +278,16 @@ class OrderViewSet(viewsets.ModelViewSet):
 
             updated_order = OrderStateMachine.transition_order(order, new_state, notes="Manual advance.", performed_by=user)
             
+            if new_state == Order.State.PAID:
+                # Explicitly verify payments
+                from payments.models import Payment
+                updated_order.payments.filter(status=Payment.Status.PENDING).update(status=Payment.Status.VERIFIED)
+                
+                # Explicitly confirm linked reservation
+                if updated_order.fulfillment_mode == Order.FulfillmentMode.RESERVATION and updated_order.reservation:
+                    updated_order.reservation.status = 'CONFIRMED'
+                    updated_order.reservation.save(update_fields=['status'])
+
             if new_state in [Order.State.PAID, Order.State.QUEUED]:
                 if updated_order.store.store_type == 'SHOP':
                     if updated_order.state == Order.State.PAID:
@@ -193,11 +328,20 @@ class OrderViewSet(viewsets.ModelViewSet):
                     locked_order.state = new_state
                     locked_order.save(update_fields=['state', 'updated_at'])
 
-                    if new_state == Order.State.PAID and locked_order.customer:
-                        from django.db.models import F
-                        locked_order.customer.__class__.objects.filter(pk=locked_order.customer_id).update(
-                            loyalty_points=F('loyalty_points') + int(locked_order.total_amount)
-                        )
+                    if new_state == Order.State.PAID:
+                        if locked_order.customer:
+                            from django.db.models import F
+                            locked_order.customer.__class__.objects.filter(pk=locked_order.customer_id).update(
+                                loyalty_points=F('loyalty_points') + int(locked_order.total_amount)
+                            )
+                        # Explicitly verify payments
+                        from payments.models import Payment
+                        locked_order.payments.filter(status=Payment.Status.PENDING).update(status=Payment.Status.VERIFIED)
+                        
+                        # Explicitly confirm linked reservation
+                        if locked_order.fulfillment_mode == Order.FulfillmentMode.RESERVATION and locked_order.reservation:
+                            locked_order.reservation.status = 'CONFIRMED'
+                            locked_order.reservation.save(update_fields=['status'])
 
                     OrderEventLog.objects.create(order=locked_order, previous_state=current_state, new_state=new_state, notes="Bulk API advance")
 

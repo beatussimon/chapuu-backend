@@ -127,3 +127,81 @@ class POSFlowTest(TestCase):
         
         order.refresh_from_db()
         self.assertEqual(order.state, Order.State.PAID)
+
+class ReservationLinkageTest(TestCase):
+    def setUp(self):
+        from reservations.models import Reservation
+        self.client = APIClient()
+        self.seller = User.objects.create_user(
+            username='seller2', password='password123', role='SELLER'
+        )
+        self.customer = User.objects.create_user(
+            username='customer2', password='password123', role='CUSTOMER'
+        )
+        self.client.force_authenticate(user=self.customer)
+        
+        self.store = Store.objects.create(
+            name='Pizza Palace',
+            owner=self.seller,
+            store_type='RESTAURANT'
+        )
+        
+        self.product = Product.objects.create(
+            name='Test Product',
+            price=10.0,
+            store=self.store
+        )
+        
+        from django.utils import timezone
+        import datetime
+        self.reservation = Reservation.objects.create(
+            store=self.store,
+            customer=self.customer,
+            reservation_time=timezone.now() + datetime.timedelta(days=1),
+            duration_minutes=60,
+            guest_count=2,
+            status=Reservation.Status.PENDING
+        )
+
+    def test_reservation_pre_order_links_payment_and_confirms(self):
+        """
+        Verify that placing a reservation pre-order:
+        1. Links the payment's reservation FK.
+        2. Transitioning order state to PAID via Seller/Accountant auto-confirms the reservation.
+        """
+        from reservations.models import Reservation
+        from payments.models import Payment
+
+        url = reverse('order-list')
+        payload = {
+            'store': self.store.id,
+            'fulfillment_mode': 'RESERVATION',
+            'reservation': self.reservation.id,
+            'payment_message': 'MPESA transaction slip 123',
+            'items': [
+                {'product': self.product.id, 'quantity': 1}
+            ]
+        }
+        
+        response = self.client.post(url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        order_id = response.data['id']
+        
+        # 1. Payment created should have reservation linked
+        payment = Payment.objects.filter(order_id=order_id).first()
+        self.assertIsNotNone(payment)
+        self.assertEqual(payment.reservation_id, self.reservation.id)
+        self.assertEqual(payment.status, Payment.Status.PENDING)
+        
+        # 2. Advance state to PAID (using seller credentials)
+        self.client.force_authenticate(user=self.seller)
+        advance_url = reverse('order-advance-state', kwargs={'pk': order_id})
+        response = self.client.post(advance_url, {'state': 'PAID'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        # Verify payment is verified and reservation is confirmed
+        payment.refresh_from_db()
+        self.assertEqual(payment.status, Payment.Status.VERIFIED)
+        
+        self.reservation.refresh_from_db()
+        self.assertEqual(self.reservation.status, Reservation.Status.CONFIRMED)

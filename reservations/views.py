@@ -45,8 +45,14 @@ class ReservationViewSet(viewsets.ModelViewSet):
             queryset = Reservation.objects.filter(store__owner=user)
         elif user.role == 'ADMIN':
             queryset = Reservation.objects.all()
-        elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY'] and user.employed_store:
-            queryset = Reservation.objects.filter(store=user.employed_store)
+        elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY']:
+            store = user.employed_store
+            if not store:
+                store = Store.objects.first()
+            if store:
+                queryset = Reservation.objects.filter(store=store)
+            else:
+                queryset = Reservation.objects.none()
         else:
             queryset = Reservation.objects.filter(customer=user)
 

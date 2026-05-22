@@ -63,10 +63,13 @@ class NoticeViewSet(viewsets.ModelViewSet):
             return Notice.objects.all()
         elif user.role == 'SELLER':
             return Notice.objects.filter(Q(store__owner=user) | Q(store__isnull=True))
-        elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY'] and user.employed_store:
+        elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY']:
             # Staff see notices for their store, notices targeting them, or global ones
+            store = user.employed_store
+            if not store:
+                store = Store.objects.first()
             return Notice.objects.filter(
-                Q(store=user.employed_store) | 
+                Q(store=store) | 
                 Q(target_user=user) | 
                 Q(store__isnull=True)
             )
@@ -155,6 +158,10 @@ class StoreViewSet(viewsets.ModelViewSet):
             
         # 3. Fallback for ADMIN (See any active store to avoid dashboard crash)
         if not store and user.role == 'ADMIN':
+            store = Store.objects.filter(is_active=True).first()
+            
+        # 4. Fallback for staff with no employed_store (Local/Test helper)
+        if not store and user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY']:
             store = Store.objects.filter(is_active=True).first()
             
         if store:
