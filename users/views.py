@@ -9,7 +9,7 @@ User = get_user_model()
 
 class IsAdminUser(permissions.BasePermission):
     def has_permission(self, request, view):
-        return bool(request.user and request.user.is_authenticated and (request.user.role == 'ADMIN' or request.user.is_superuser))
+        return bool(request.user and request.user.is_authenticated and (request.user.role in ['ADMIN', 'SUPERUSER'] or request.user.is_superuser))
 
 class IsSeller(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -75,6 +75,16 @@ class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [IsAdminUser]
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        if (instance.role == User.Role.SUPERUSER or instance.is_superuser) and not (request.user.role == User.Role.SUPERUSER or request.user.is_superuser):
+            return Response(
+                {"detail": "Only the Platform Owner (Superuser) can delete Superuser accounts."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        return super().destroy(request, *args, **kwargs)
+
 
 class CustomerRegistrationView(generics.CreateAPIView):
     """

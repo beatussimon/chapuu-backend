@@ -6,6 +6,7 @@ class User(AbstractUser):
         CUSTOMER = 'CUSTOMER', 'Customer'
         SELLER = 'SELLER', 'Seller'
         ADMIN = 'ADMIN', 'Admin'
+        SUPERUSER = 'SUPERUSER', 'Superuser'
         CHEF = 'CHEF', 'Chef'
         DELIVERY = 'DELIVERY', 'Delivery Driver'
         ACCOUNTANT = 'ACCOUNTANT', 'Accountant'
@@ -22,6 +23,13 @@ class User(AbstractUser):
 
     def save(self, *args, **kwargs):
         from django.utils import timezone
+        if self.is_superuser or self.role == self.Role.SUPERUSER:
+            self.role = self.Role.SUPERUSER
+            self.is_superuser = True
+            self.is_staff = True
+        elif self.role == self.Role.ADMIN:
+            self.is_staff = True
+            
         if self.accepted_liability_policy and not self.policy_accepted_at:
             self.policy_accepted_at = timezone.now()
         super().save(*args, **kwargs)

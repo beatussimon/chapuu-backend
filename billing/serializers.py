@@ -21,15 +21,20 @@ class MonthlyInvoiceSerializer(serializers.ModelSerializer):
 class CommissionPaymentSerializer(serializers.ModelSerializer):
     submitted_by_username = serializers.CharField(source='submitted_by.username', read_only=True)
     reviewed_by_username = serializers.CharField(source='reviewed_by.username', read_only=True)
+    store_name = serializers.CharField(source='invoice.store.name', read_only=True)
+    invoice_year = serializers.IntegerField(source='invoice.year', read_only=True)
+    invoice_month = serializers.IntegerField(source='invoice.month', read_only=True)
 
     class Meta:
         model = CommissionPayment
         fields = [
-            'id', 'invoice', 'amount', 'transaction_id', 'receipt_screenshot', 'status', 
-            'rejection_reason', 'submitted_by', 'submitted_by_username', 'submitted_at', 
+            'id', 'invoice', 'store_name', 'invoice_year', 'invoice_month', 'amount', 
+            'transaction_id', 'receipt_screenshot', 'status', 'rejection_reason', 
+            'submitted_by', 'submitted_by_username', 'submitted_at', 
             'reviewed_by', 'reviewed_by_username', 'reviewed_at'
         ]
         read_only_fields = ['id', 'status', 'rejection_reason', 'submitted_by', 'submitted_at', 'reviewed_by', 'reviewed_at']
+
 
 class PlatformPaymentMethodSerializer(serializers.ModelSerializer):
     class Meta:

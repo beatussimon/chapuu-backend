@@ -43,7 +43,7 @@ class ReservationViewSet(viewsets.ModelViewSet):
 
         if user.role == 'SELLER':
             queryset = Reservation.objects.filter(store__owner=user)
-        elif user.role == 'ADMIN':
+        elif user.role in ['ADMIN', 'SUPERUSER'] or user.is_superuser:
             queryset = Reservation.objects.all()
         elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY']:
             store = user.employed_store
@@ -119,7 +119,8 @@ class ReservationViewSet(viewsets.ModelViewSet):
     def confirm(self, request, pk=None):
         """Seller explicitly confirms the reservation (bypassing payment for now)."""
         reservation = self.get_object()
-        if request.user.role != 'SELLER' and request.user.role != 'ADMIN':
+        is_seller_admin_su = request.user.role in ['SELLER', 'ADMIN', 'SUPERUSER'] or request.user.is_superuser
+        if not is_seller_admin_su:
             return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
             
         reservation.status = Reservation.Status.CONFIRMED
@@ -129,7 +130,8 @@ class ReservationViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def check_in(self, request, pk=None):
         reservation = self.get_object()
-        if request.user.role != 'SELLER' and request.user.role != 'ADMIN':
+        is_seller_admin_su = request.user.role in ['SELLER', 'ADMIN', 'SUPERUSER'] or request.user.is_superuser
+        if not is_seller_admin_su:
             return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
             
         if reservation.status != Reservation.Status.CONFIRMED:
@@ -143,7 +145,8 @@ class ReservationViewSet(viewsets.ModelViewSet):
         reservation = self.get_object()
         
         # Policy: Only owner or customer can cancel
-        if request.user != reservation.customer and request.user.role not in ['SELLER', 'ADMIN']:
+        is_seller_admin_su = request.user.role in ['SELLER', 'ADMIN', 'SUPERUSER'] or request.user.is_superuser
+        if request.user != reservation.customer and not is_seller_admin_su:
             return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
 
         # Policy: Check if modification is allowed (re-use the same logic as serializer)
@@ -181,7 +184,8 @@ class ReservationViewSet(viewsets.ModelViewSet):
             return Response({"error": "new reservation_time is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         # Policy: Only owner or customer can reschedule
-        if request.user != reservation.customer and request.user.role not in ['SELLER', 'ADMIN']:
+        is_seller_admin_su = request.user.role in ['SELLER', 'ADMIN', 'SUPERUSER'] or request.user.is_superuser
+        if request.user != reservation.customer and not is_seller_admin_su:
             return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
 
         # Policy: 2-hour rule for customers
@@ -213,7 +217,7 @@ class ReservationViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def no_show(self, request, pk=None):
         reservation = self.get_object()
-        if request.user.role not in ['SELLER', 'ADMIN', 'CHEF']:
+        if request.user.role not in ['SELLER', 'ADMIN', 'SUPERUSER', 'CHEF'] and not request.user.is_superuser:
             return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
         reservation.status = Reservation.Status.NO_SHOW
         reservation.save(update_fields=['status'])
@@ -228,7 +232,7 @@ class TableSessionViewSet(viewsets.ModelViewSet):
         user = self.request.user
         if user.role == 'SELLER':
             return TableSession.objects.filter(store__owner=user, is_active=True)
-        elif user.role == 'ADMIN':
+        elif user.role in ['ADMIN', 'SUPERUSER'] or user.is_superuser:
             return TableSession.objects.all()
         # Customers don't directly query sessions usually, but can see their own active session
         return TableSession.objects.filter(reservation__customer=user, is_active=True)
@@ -236,7 +240,8 @@ class TableSessionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def close(self, request, pk=None):
         session = self.get_object()
-        if request.user.role != 'SELLER' and request.user.role != 'ADMIN':
+        is_seller_admin_su = request.user.role in ['SELLER', 'ADMIN', 'SUPERUSER'] or request.user.is_superuser
+        if not is_seller_admin_su:
             return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
             
         session.is_active = False

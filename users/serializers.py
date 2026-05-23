@@ -31,6 +31,29 @@ class UserSerializer(serializers.ModelSerializer):
             
             if errors:
                 raise serializers.ValidationError(errors)
+        
+        # Check for privilege escalation
+        request = self.context.get('request')
+        if request and request.user:
+            current_user = request.user
+            new_role = attrs.get('role')
+            
+            if self.instance:
+                # Update case:
+                # If target is SUPERUSER or ADMIN, only SUPERUSER can edit them
+                if (self.instance.role in [User.Role.SUPERUSER, User.Role.ADMIN] or self.instance.is_superuser) and not (current_user.role == User.Role.SUPERUSER or current_user.is_superuser):
+                    raise serializers.ValidationError({"role": "Only the Platform Owner (Superuser) can modify Admin or Superuser accounts."})
+                
+                # If changing role to SUPERUSER or ADMIN, only SUPERUSER can do it
+                if new_role and new_role != self.instance.role:
+                    if new_role in [User.Role.SUPERUSER, User.Role.ADMIN] and not (current_user.role == User.Role.SUPERUSER or current_user.is_superuser):
+                        raise serializers.ValidationError({"role": "Only the Platform Owner (Superuser) can promote accounts to Admin or Superuser."})
+            else:
+                # Create case:
+                # If creating an ADMIN or SUPERUSER account, only SUPERUSER can do it
+                if new_role in [User.Role.SUPERUSER, User.Role.ADMIN] and not (current_user.role == User.Role.SUPERUSER or current_user.is_superuser):
+                    raise serializers.ValidationError({"role": "Only the Platform Owner (Superuser) can create Admin or Superuser accounts."})
+                    
         return attrs
 
     def create(self, validated_data):
@@ -55,7 +78,7 @@ class StaffSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = User
-        fields = ('id', 'username', 'password', 'first_name', 'last_name', 'role', 'phone_number', 'is_active', 'employed_store')
+        fields = ('id', 'username', 'password', 'first_name', 'last_name', 'email', 'role', 'phone_number', 'is_active', 'employed_store')
         read_only_fields = ('employed_store',)
 
     def validate_role(self, value):

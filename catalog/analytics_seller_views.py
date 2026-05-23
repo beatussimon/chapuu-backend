@@ -18,7 +18,7 @@ class SellerAnalyticsViewSet(viewsets.ViewSet):
 
     def list(self, request):
         user = request.user
-        if user.role not in ['SELLER', 'ADMIN']:
+        if user.role not in ['SELLER', 'ADMIN', 'SUPERUSER'] and not user.is_superuser:
             return Response({"error": "Permission denied"}, status=403)
 
         # Date range parsing

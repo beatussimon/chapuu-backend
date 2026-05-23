@@ -45,7 +45,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             return qs
 
         # Authenticated Queryset
-        if user.role == 'ADMIN':
+        if user.role in ['ADMIN', 'SUPERUSER'] or user.is_superuser:
             queryset = Order.objects.select_related('review').all()
         elif user.role == 'SELLER':
             queryset = Order.objects.select_related('review').filter(store__owner=user)
@@ -71,8 +71,8 @@ class OrderViewSet(viewsets.ModelViewSet):
         is_instant = serializer.validated_data.get('is_instant_payment', False)
 
         # Only staff can mark an order as instant payment
-        STAFF_ROLES = ['SELLER', 'ADMIN', 'ACCOUNTANT', 'CHEF']
-        if is_instant and user.role not in STAFF_ROLES:
+        STAFF_ROLES = ['SELLER', 'ADMIN', 'SUPERUSER', 'ACCOUNTANT', 'CHEF']
+        if is_instant and user.role not in STAFF_ROLES and not user.is_superuser:
             raise PermissionDenied("Only store staff can place instant payment (walk-in) orders.")
 
         order = serializer.save(customer=user if user.is_authenticated else None)
@@ -109,7 +109,8 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def cancel(self, request, pk=None):
         order = self.get_object()
-        if request.user != order.customer and request.user != order.store.owner and request.user.role != 'ADMIN':
+        is_admin_or_su = request.user.role in ['ADMIN', 'SUPERUSER'] or request.user.is_superuser
+        if request.user != order.customer and request.user != order.store.owner and not is_admin_or_su:
             return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
         try:
             # If order is PAID, scheduled, and cancelled by customer: apply 6% cancellation fee
@@ -159,7 +160,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         code = request.data.get('code', '')
         
         # Verify the user is staff or delivery driver
-        is_staff = request.user.role in ['SELLER', 'ADMIN', 'DELIVERY', 'CHEF', 'ACCOUNTANT'] or order.store.owner == request.user
+        is_staff = request.user.role in ['SELLER', 'ADMIN', 'SUPERUSER', 'DELIVERY', 'CHEF', 'ACCOUNTANT'] or request.user.is_superuser or order.store.owner == request.user
         if not is_staff:
             return Response({"error": "Permission denied. Only staff or delivery personnel can confirm handoffs."}, status=status.HTTP_403_FORBIDDEN)
 
@@ -189,7 +190,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         order = self.get_object()
         
         # Verify the user is authorized store staff or store owner
-        is_authorized = request.user.role in ['SELLER', 'ADMIN', 'CHEF', 'ACCOUNTANT'] or order.store.owner == request.user
+        is_authorized = request.user.role in ['SELLER', 'ADMIN', 'SUPERUSER', 'CHEF', 'ACCOUNTANT'] or request.user.is_superuser or order.store.owner == request.user
         if not is_authorized:
             return Response({"error": "Permission denied. Only store staff can manually override and verify handoffs."}, status=status.HTTP_403_FORBIDDEN)
             
@@ -302,7 +303,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def respond_reschedule(self, request, pk=None):
         order = self.get_object()
-        is_staff = request.user.role in ['SELLER', 'ADMIN', 'CHEF'] or order.store.owner == request.user
+        is_staff = request.user.role in ['SELLER', 'ADMIN', 'SUPERUSER', 'CHEF'] or request.user.is_superuser or order.store.owner == request.user
         if not is_staff:
             return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
             
@@ -346,7 +347,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='admin_reset_lock', permission_classes=[permissions.IsAuthenticated])
     def admin_reset_lock(self, request, pk=None):
         order = self.get_object()
-        if request.user.role != 'ADMIN':
+        if request.user.role not in ['ADMIN', 'SUPERUSER'] and not request.user.is_superuser:
             return Response({"error": "Permission denied. Only platform administrators can reset locks."}, status=status.HTTP_403_FORBIDDEN)
         order.is_locked = False
         order.delivery_code_attempts = 0
@@ -357,7 +358,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path=r'items/(?P<item_id>\d+)/ready', permission_classes=[permissions.IsAuthenticated])
     def mark_item_ready(self, request, pk=None, item_id=None):
         order = self.get_object()
-        if request.user.role not in ['SELLER', 'ADMIN', 'CHEF']:
+        if request.user.role not in ['SELLER', 'ADMIN', 'SUPERUSER', 'CHEF'] and not request.user.is_superuser:
             return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
         try:
             item = order.items.get(id=item_id)
@@ -376,7 +377,7 @@ class OrderViewSet(viewsets.ModelViewSet):
         user = request.user
         new_state = request.data.get('state')
         
-        allowed = (user.role in ['ADMIN', 'SELLER'])
+        allowed = (user.role in ['ADMIN', 'SUPERUSER', 'SELLER'] or user.is_superuser)
         if not allowed:
             if user.role == 'ACCOUNTANT' and new_state in [Order.State.PAID, Order.State.CANCELLED]: allowed = True
             elif user.role == 'CHEF' and new_state in [Order.State.PREPARING, Order.State.READY]: allowed = True

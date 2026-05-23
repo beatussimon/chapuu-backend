@@ -12,18 +12,24 @@ class IsAdminOrReadOnly(permissions.BasePermission):
     def has_permission(self, request, view):
         if request.method in permissions.SAFE_METHODS:
             return True
-        return request.user.is_authenticated and (request.user.role == 'ADMIN' or request.user.is_superuser)
+        return request.user.is_authenticated and (request.user.role in ['ADMIN', 'SUPERUSER'] or request.user.is_superuser)
+
+class IsSuperUserOrReadOnly(permissions.BasePermission):
+    def has_permission(self, request, view):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return request.user.is_authenticated and (request.user.role == 'SUPERUSER' or request.user.is_superuser)
 
 class GlobalPaymentMethodViewSet(viewsets.ModelViewSet):
     queryset = GlobalPaymentMethod.objects.all()
     serializer_class = GlobalPaymentMethodSerializer
-    permission_classes = [IsAdminOrReadOnly]
+    permission_classes = [IsSuperUserOrReadOnly]
 
 class IsSellerOrAdminForWriteStore(permissions.BasePermission):
     def has_permission(self, request, view):
         if request.method in permissions.SAFE_METHODS:
             return True
-        return request.user.is_authenticated and request.user.role in ['SELLER', 'ADMIN']
+        return request.user.is_authenticated and (request.user.role in ['SELLER', 'ADMIN', 'SUPERUSER'] or request.user.is_superuser)
 
 class StorePaymentMethodViewSet(viewsets.ModelViewSet):
     serializer_class = StorePaymentMethodSerializer
@@ -32,7 +38,7 @@ class StorePaymentMethodViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         # Allow sellers/admins to see all payment methods, public to see only active
         user = self.request.user
-        if user.is_authenticated and user.role in ['SELLER', 'ADMIN']:
+        if user.is_authenticated and (user.role in ['SELLER', 'ADMIN', 'SUPERUSER'] or user.is_superuser):
             queryset = StorePaymentMethod.objects.all()
         else:
             queryset = StorePaymentMethod.objects.filter(is_active=True)
@@ -44,20 +50,23 @@ class StorePaymentMethodViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         store = serializer.validated_data.get('store')
-        if self.request.user.role != 'ADMIN' and store.owner != self.request.user:
+        is_admin_or_su = self.request.user.role in ['ADMIN', 'SUPERUSER'] or self.request.user.is_superuser
+        if not is_admin_or_su and store.owner != self.request.user:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only add payment methods to your own store.")
         serializer.save()
 
     def perform_update(self, serializer):
         payment_method = self.get_object()
-        if self.request.user.role != 'ADMIN' and payment_method.store.owner != self.request.user:
+        is_admin_or_su = self.request.user.role in ['ADMIN', 'SUPERUSER'] or self.request.user.is_superuser
+        if not is_admin_or_su and payment_method.store.owner != self.request.user:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only modify payment methods for your own store.")
         serializer.save()
 
     def perform_destroy(self, instance):
-        if self.request.user.role != 'ADMIN' and instance.store.owner != self.request.user:
+        is_admin_or_su = self.request.user.role in ['ADMIN', 'SUPERUSER'] or self.request.user.is_superuser
+        if not is_admin_or_su and instance.store.owner != self.request.user:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only delete payment methods for your own store.")
         instance.delete()
@@ -76,8 +85,9 @@ class StoreGalleryImageViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         store = serializer.validated_data.get('store')
         
-        # 1. Authorization check: Only store owner or Admin
-        if self.request.user.role != 'ADMIN' and store.owner != self.request.user:
+        # 1. Authorization check: Only store owner or Admin/Superuser
+        is_admin_or_su = self.request.user.role in ['ADMIN', 'SUPERUSER'] or self.request.user.is_superuser
+        if not is_admin_or_su and store.owner != self.request.user:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only add gallery images to your own store.")
             
@@ -89,8 +99,9 @@ class StoreGalleryImageViewSet(viewsets.ModelViewSet):
         serializer.save()
 
     def perform_destroy(self, instance):
-        # Authorization check: Only store owner or Admin
-        if self.request.user.role != 'ADMIN' and instance.store.owner != self.request.user:
+        # Authorization check: Only store owner or Admin/Superuser
+        is_admin_or_su = self.request.user.role in ['ADMIN', 'SUPERUSER'] or self.request.user.is_superuser
+        if not is_admin_or_su and instance.store.owner != self.request.user:
             from rest_framework.exceptions import PermissionDenied
             raise PermissionDenied("You can only delete gallery images for your own store.")
         instance.delete()
@@ -103,7 +114,7 @@ class NoticeViewSet(viewsets.ModelViewSet):
         user = self.request.user
         from django.db.models import Q
         
-        if user.role == 'ADMIN':
+        if user.role in ['ADMIN', 'SUPERUSER'] or user.is_superuser:
             return Notice.objects.all()
         elif user.role == 'SELLER':
             return Notice.objects.filter(Q(store__owner=user) | Q(store__isnull=True))
@@ -173,7 +184,7 @@ class StoreViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
-        if user and user.is_authenticated and (user.role == 'ADMIN' or user.is_superuser):
+        if user and user.is_authenticated and (user.role in ['ADMIN', 'SUPERUSER'] or user.is_superuser):
             return Store.objects.all().prefetch_related('payment_methods', 'kitchen_settings')
         return Store.objects.filter(is_active=True).prefetch_related('payment_methods', 'kitchen_settings')
     
@@ -189,7 +200,7 @@ class StoreViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
     def my_store(self, request):
         user = request.user
-        if user.role not in ['SELLER', 'ADMIN', 'CHEF', 'ACCOUNTANT', 'DELIVERY']:
+        if user.role not in ['SELLER', 'ADMIN', 'SUPERUSER', 'CHEF', 'ACCOUNTANT', 'DELIVERY']:
             return Response({"error": f"Unauthorized. Your role is {user.role}"}, status=403)
             
         store = None
@@ -201,13 +212,13 @@ class StoreViewSet(viewsets.ModelViewSet):
         # 2. Try to find store by employment (Chefs/Staff)
         if not store and user.employed_store:
             store = user.employed_store
-
+            
         # 3. Try to find store for ACCOUNTANT/DELIVERY
         if not store and user.role in ['ACCOUNTANT', 'DELIVERY'] and user.employed_store:
             store = user.employed_store
             
         # 3. Fallback for ADMIN (See any active store to avoid dashboard crash)
-        if not store and user.role == 'ADMIN':
+        if not store and (user.role in ['ADMIN', 'SUPERUSER'] or user.is_superuser):
             store = Store.objects.filter(is_active=True).first()
             
         # 4. Fallback for staff with no employed_store (Local/Test helper)
@@ -244,7 +255,8 @@ class StoreViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'])
     def toggle_status(self, request, pk=None):
         store = self.get_object()
-        if request.user != store.owner and request.user.role != 'ADMIN':
+        is_admin_or_su = request.user.role in ['ADMIN', 'SUPERUSER'] or request.user.is_superuser
+        if request.user != store.owner and not is_admin_or_su:
             return Response({"error": "unauthorized"}, status=403)
             
         store.is_open = not store.is_open
@@ -254,7 +266,8 @@ class StoreViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['patch'])
     def toggle_kitchen_pause(self, request, pk=None):
         store = self.get_object()
-        if request.user != store.owner and request.user.role != 'ADMIN':
+        is_admin_or_su = request.user.role in ['ADMIN', 'SUPERUSER'] or request.user.is_superuser
+        if request.user != store.owner and not is_admin_or_su:
             return Response({"error": "unauthorized"}, status=403)
             
         settings = store.kitchen_settings
@@ -279,8 +292,8 @@ class SystemSupportConfigViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['post', 'put', 'patch'], permission_classes=[permissions.IsAuthenticated])
     def update_config(self, request):
-        if request.user.role != 'ADMIN':
-            return Response({"error": "Permission denied. Only admins can update support configuration."}, status=403)
+        if request.user.role != 'SUPERUSER' and not request.user.is_superuser:
+            return Response({"error": "Permission denied. Only Superusers can update support configuration."}, status=403)
         config = SystemSupportConfig.get_solo()
         serializer = SystemSupportConfigSerializer(config, data=request.data, partial=True, context={'request': request})
         serializer.is_valid(raise_exception=True)

@@ -27,6 +27,7 @@ from users.views import UserViewSet, CustomerRegistrationView, CurrentUserView, 
 from orders.views import OrderViewSet
 from catalog.stats_views import BillboardStatsViewSet
 from catalog.analytics_seller_views import SellerAnalyticsViewSet
+from catalog.analytics_platform_views import PlatformAnalyticsViewSet
 from stores.views import StoreViewSet, AdvertisementViewSet, CurrencyConfigViewSet, TableViewSet, NoticeViewSet, StorePaymentMethodViewSet, SystemSupportConfigViewSet, StoreGalleryImageViewSet, GlobalPaymentMethodViewSet
 from reservations.views import ReservationViewSet, TableSessionViewSet
 from reviews.views import StoreReviewViewSet
@@ -74,6 +75,7 @@ router.register(r'reviews', StoreReviewViewSet, basename='review')
 router.register(r'ads', AdvertisementViewSet, basename='ad')
 router.register(r'stats/billboard', BillboardStatsViewSet, basename='billboard')
 router.register(r'analytics/seller', SellerAnalyticsViewSet, basename='seller-analytics')
+router.register(r'analytics/platform', PlatformAnalyticsViewSet, basename='platform-analytics')
 router.register(r'currencies', CurrencyConfigViewSet, basename='currency')
 router.register(r'tables', TableViewSet, basename='table')
 router.register(r'notices', NoticeViewSet, basename='notice')
