@@ -1,17 +1,36 @@
 from rest_framework import serializers
-from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod, SystemSupportConfig, StoreGalleryImage
+from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod, SystemSupportConfig, StoreGalleryImage, GlobalPaymentMethod
 
 class KitchenSettingsSerializer(serializers.ModelSerializer):
     class Meta:
         model = KitchenSettings
         fields = '__all__'
 
+class GlobalPaymentMethodSerializer(serializers.ModelSerializer):
+    logo_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = GlobalPaymentMethod
+        fields = ['id', 'name', 'logo', 'logo_url', 'requires_account_details', 'is_active']
+
+    def get_logo_url(self, obj):
+        if obj.logo:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.logo.url)
+            return obj.logo.url
+        return None
+
 class StorePaymentMethodSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()
+    global_payment_method_detail = GlobalPaymentMethodSerializer(source='global_payment_method', read_only=True)
 
     class Meta:
         model = StorePaymentMethod
         fields = '__all__'
+        extra_kwargs = {
+            'provider': {'required': False}
+        }
 
     def get_image_url(self, obj):
         if obj.image:
@@ -19,7 +38,59 @@ class StorePaymentMethodSerializer(serializers.ModelSerializer):
             if request:
                 return request.build_absolute_uri(obj.image.url)
             return obj.image.url
+        elif obj.global_payment_method and obj.global_payment_method.logo:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.global_payment_method.logo.url)
+            return obj.global_payment_method.logo.url
         return None
+
+    def validate(self, attrs):
+        global_pm = attrs.get('global_payment_method')
+        
+        if not global_pm and not attrs.get('provider'):
+            raise serializers.ValidationError({"provider": "This field is required."})
+
+        # If there's a global payment method, validate account details based on its config
+        if global_pm:
+            # Sync legacy provider field
+            attrs['provider'] = global_pm.name
+            
+            # Sync legacy image if global logo exists and not overriding locally
+            if global_pm.logo and not attrs.get('image'):
+                attrs['image'] = global_pm.logo
+
+            if global_pm.requires_account_details:
+                account_name = attrs.get('account_name')
+                account_number = attrs.get('account_number')
+                
+                errs = {}
+                if not account_name or not str(account_name).strip():
+                    errs["account_name"] = "Account Name is required for this payment method."
+                if not account_number or not str(account_number).strip():
+                    errs["account_number"] = "Account Number is required for this payment method."
+                if errs:
+                    raise serializers.ValidationError(errs)
+            else:
+                # If account details are not required (e.g. Cash), nullify them or set to empty
+                attrs['account_name'] = ""
+                attrs['account_number'] = ""
+        else:
+            # Fallback legacy validation: if provider contains "mpesa" or "bank"
+            provider = attrs.get('provider', '')
+            if provider and any(keyword in provider.lower() for keyword in ['m-pesa', 'mpesa', 'bank', 'transfer', 'tigo', 'airtel', 'halo']):
+                account_name = attrs.get('account_name')
+                account_number = attrs.get('account_number')
+                
+                errs = {}
+                if not account_name or not str(account_name).strip():
+                    errs["account_name"] = "Account Name is required for mobile money or bank transfers."
+                if not account_number or not str(account_number).strip():
+                    errs["account_number"] = "Account Number is required for mobile money or bank transfers."
+                if errs:
+                    raise serializers.ValidationError(errs)
+
+        return attrs
 
 class StoreGalleryImageSerializer(serializers.ModelSerializer):
     image_url = serializers.SerializerMethodField()

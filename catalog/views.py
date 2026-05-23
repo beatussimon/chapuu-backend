@@ -1,4 +1,5 @@
 from rest_framework import viewsets, permissions, status
+from django.db.models import Q
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from catalog.models import Product, Category, InventoryStock, Ingredient, RecipeIngredient
@@ -130,8 +131,27 @@ class CategoryViewSet(viewsets.ModelViewSet):
         queryset = super().get_queryset()
         store_id = self.request.query_params.get('store', None)
         if store_id is not None:
-            queryset = queryset.filter(store_id=store_id)
+            queryset = queryset.filter(Q(store__isnull=True) | Q(store_id=store_id))
         return queryset
+
+    def create(self, request, *args, **kwargs):
+        name = request.data.get('name', '').strip()
+        if not name:
+            return Response({"detail": "Name is required."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Lowercase both and compare to prevent duplicates
+        existing = Category.objects.filter(name__iexact=name).first()
+        if existing:
+            serializer = self.get_serializer(existing)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+            
+        data = request.data.copy()
+        data['store'] = None
+        serializer = self.get_serializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
 class InventoryStockViewSet(viewsets.ModelViewSet):
     """

@@ -205,3 +205,162 @@ class ReservationLinkageTest(TestCase):
         
         self.reservation.refresh_from_db()
         self.assertEqual(self.reservation.status, Reservation.Status.CONFIRMED)
+
+class PreorderReschedulingAndSafetyTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.seller = User.objects.create_user(
+            username='seller_t', password='password123', role='SELLER'
+        )
+        self.admin = User.objects.create_user(
+            username='admin_t', password='password123', role='ADMIN'
+        )
+        self.customer = User.objects.create_user(
+            username='customer_t', password='password123', role='CUSTOMER'
+        )
+        
+        self.store = Store.objects.create(
+            name='Test Rest',
+            owner=self.seller,
+            store_type='RESTAURANT'
+        )
+        
+        self.product = Product.objects.create(
+            name='Dish',
+            price=15.0,
+            store=self.store,
+            estimated_prep_time_minutes=20
+        )
+
+    def test_preorder_reschedule_validations(self):
+        """
+        Verify reschedule validations:
+        1. Rescheduling is allowed in PAID/QUEUED states.
+        2. Blocks rescheduling if state is PREPARING.
+        3. Enforces future prep start times based on product average prep time.
+        """
+        from django.utils import timezone
+        import datetime
+
+        # Create an upcoming scheduled order
+        scheduled_time = timezone.now() + datetime.timedelta(hours=2)
+        order = Order.objects.create(
+            store=self.store,
+            customer=self.customer,
+            total_amount=15.0,
+            state=Order.State.PAID,
+            scheduled_time=scheduled_time,
+            prep_time_option='DYNAMIC'
+        )
+        # Link order item
+        order.items.create(product=self.product, quantity=1, unit_price=15.0)
+        
+        # Calculate initial prep start time
+        order.scheduled_start_time = scheduled_time - datetime.timedelta(minutes=20)
+        order.save()
+
+        # 1. Customer requests valid reschedule
+        self.client.force_authenticate(user=self.customer)
+        new_time = timezone.now() + datetime.timedelta(hours=3)
+        res = self.client.post(
+            reverse('order-request-reschedule', kwargs={'pk': order.id}),
+            {'scheduled_time': new_time.isoformat()},
+            format='json'
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        order.refresh_from_db()
+        self.assertEqual(order.reschedule_status, 'PENDING')
+
+        # 2. Try to reschedule too close (blocks because kitchen needs 20 mins)
+        too_close_time = timezone.now() + datetime.timedelta(minutes=10)
+        res = self.client.post(
+            reverse('order-request-reschedule', kwargs={'pk': order.id}),
+            {'scheduled_time': too_close_time.isoformat()},
+            format='json'
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # 3. Seller responds to reschedule request
+        self.client.force_authenticate(user=self.seller)
+        # Attempt rejection without reason (should fail with 400)
+        res = self.client.post(
+            reverse('order-respond-reschedule', kwargs={'pk': order.id}),
+            {'approve': False},
+            format='json'
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Reject with reason (should succeed)
+        res = self.client.post(
+            reverse('order-respond-reschedule', kwargs={'pk': order.id}),
+            {'approve': False, 'rejection_reason': 'Too busy right now.'},
+            format='json'
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        order.refresh_from_db()
+        self.assertEqual(order.reschedule_status, 'REJECTED')
+        self.assertEqual(order.reschedule_rejection_reason, 'Too busy right now.')
+
+        # 4. Try requesting a new reschedule (allowed since the first was rejected, not approved)
+        self.client.force_authenticate(user=self.customer)
+        new_time2 = timezone.now() + datetime.timedelta(hours=4)
+        res = self.client.post(
+            reverse('order-request-reschedule', kwargs={'pk': order.id}),
+            {'scheduled_time': new_time2.isoformat()},
+            format='json'
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+
+        # Seller approves it
+        self.client.force_authenticate(user=self.seller)
+        res = self.client.post(
+            reverse('order-respond-reschedule', kwargs={'pk': order.id}),
+            {'approve': True},
+            format='json'
+        )
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        order.refresh_from_db()
+        self.assertEqual(order.reschedule_status, 'APPROVED')
+        self.assertEqual(order.reschedule_count, 1)
+
+        # 5. Try requesting reschedule again after 1 successful reschedule (should fail with 400)
+        self.client.force_authenticate(user=self.customer)
+        new_time3 = timezone.now() + datetime.timedelta(hours=5)
+        res = self.client.post(
+            reverse('order-request-reschedule', kwargs={'pk': order.id}),
+            {'scheduled_time': new_time3.isoformat()},
+            format='json'
+        )
+        self.assertEqual(res.status_code, status.HTTP_400_BAD_REQUEST)
+
+        # Assert history requests count
+        self.assertEqual(order.reschedule_requests.count(), 2)
+        self.assertEqual(order.reschedule_requests.filter(status='REJECTED').count(), 1)
+        self.assertEqual(order.reschedule_requests.filter(status='APPROVED').count(), 1)
+
+    def test_admin_reset_lock(self):
+        """
+        Verify admin_reset_lock action resets locked order status.
+        """
+        order = Order.objects.create(
+            store=self.store,
+            customer=self.customer,
+            total_amount=15.0,
+            state=Order.State.READY,
+            is_locked=True,
+            delivery_code_attempts=5
+        )
+
+        # Non-admin tries to unlock (Should fail)
+        self.client.force_authenticate(user=self.customer)
+        res = self.client.post(reverse('order-admin-reset-lock', kwargs={'pk': order.id}))
+        self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+        # Admin tries to unlock (Should succeed)
+        self.client.force_authenticate(user=self.admin)
+        res = self.client.post(reverse('order-admin-reset-lock', kwargs={'pk': order.id}))
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        
+        order.refresh_from_db()
+        self.assertFalse(order.is_locked)
+        self.assertEqual(order.delivery_code_attempts, 0)

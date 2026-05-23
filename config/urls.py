@@ -27,7 +27,7 @@ from users.views import UserViewSet, CustomerRegistrationView, CurrentUserView, 
 from orders.views import OrderViewSet
 from catalog.stats_views import BillboardStatsViewSet
 from catalog.analytics_seller_views import SellerAnalyticsViewSet
-from stores.views import StoreViewSet, AdvertisementViewSet, CurrencyConfigViewSet, TableViewSet, NoticeViewSet, StorePaymentMethodViewSet, SystemSupportConfigViewSet, StoreGalleryImageViewSet
+from stores.views import StoreViewSet, AdvertisementViewSet, CurrencyConfigViewSet, TableViewSet, NoticeViewSet, StorePaymentMethodViewSet, SystemSupportConfigViewSet, StoreGalleryImageViewSet, GlobalPaymentMethodViewSet
 from reservations.views import ReservationViewSet, TableSessionViewSet
 from reviews.views import StoreReviewViewSet
 from django.conf import settings
@@ -78,6 +78,7 @@ router.register(r'currencies', CurrencyConfigViewSet, basename='currency')
 router.register(r'tables', TableViewSet, basename='table')
 router.register(r'notices', NoticeViewSet, basename='notice')
 router.register(r'payment-methods', StorePaymentMethodViewSet, basename='payment-method')
+router.register(r'global-payment-methods', GlobalPaymentMethodViewSet, basename='global-payment-method')
 router.register(r'store-gallery', StoreGalleryImageViewSet, basename='store-gallery')
 router.register(r'staff', StaffManagementViewSet, basename='staff')
 router.register(r'system-support', SystemSupportConfigViewSet, basename='system-support')

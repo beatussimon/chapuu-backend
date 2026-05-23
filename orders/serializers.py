@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from orders.models import Order, OrderItem
+from orders.models import Order, OrderItem, OrderRescheduleRequest
 from catalog.serializers import ProductSerializer
 from payments.models import Payment
 
@@ -18,6 +18,11 @@ class OrderItemSerializer(serializers.ModelSerializer):
         }
         return representation
 
+class OrderRescheduleRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OrderRescheduleRequest
+        fields = ['id', 'requested_time', 'requested_start_time', 'status', 'rejection_reason', 'created_at']
+
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True)
     table_number = serializers.CharField(source='table.number', read_only=True)
@@ -29,6 +34,7 @@ class OrderSerializer(serializers.ModelSerializer):
     review_details = serializers.SerializerMethodField()
     store_name = serializers.CharField(source='store.name', read_only=True)
     store_phone = serializers.CharField(source='store.contact_phone', read_only=True)
+    reschedule_requests = OrderRescheduleRequestSerializer(many=True, read_only=True)
 
     class Meta:
         model = Order
@@ -37,11 +43,11 @@ class OrderSerializer(serializers.ModelSerializer):
             'fulfillment_mode', 'customer_phone', 'delivery_location', 'total_amount', 'delivery_fee', 'created_at', 
             'updated_at', 'scheduled_time', 'is_instant_payment', 'items', 'payment_message', 'payment_receipt', 'has_review', 'review_details',
             'delivery_code', 'delivery_code_attempts', 'is_locked', 'is_suspicious', 'prep_time_option', 'scheduled_start_time', 
-            'reschedule_requested_time', 'reschedule_requested_start_time', 'reschedule_status'
+            'reschedule_requested_time', 'reschedule_requested_start_time', 'reschedule_status', 'reschedule_rejection_reason', 'reschedule_count', 'reschedule_request_count', 'reschedule_requests'
         ]
         read_only_fields = [
             'state', 'total_amount', 'customer', 'created_at', 'updated_at', 
-            'delivery_code', 'delivery_code_attempts', 'is_locked', 'is_suspicious', 'reschedule_status'
+            'delivery_code', 'delivery_code_attempts', 'is_locked', 'is_suspicious', 'reschedule_status', 'reschedule_rejection_reason', 'reschedule_count', 'reschedule_request_count'
         ]
 
     def get_has_review(self, obj):

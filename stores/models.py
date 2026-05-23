@@ -33,8 +33,35 @@ class Store(models.Model):
     def __str__(self):
         return f"{self.name} ({self.store_type})"
 
+class GlobalPaymentMethod(models.Model):
+    name = models.CharField(max_length=100, unique=True, help_text="e.g. M-Pesa, Cash, Bank Transfer")
+    logo = models.ImageField(upload_to='global_payment_methods/', null=True, blank=True, help_text="Official provider logo")
+    requires_account_details = models.BooleanField(default=True, help_text="If True, sellers must provide Account Name and Number")
+    is_active = models.BooleanField(default=True)
+
+    def save(self, *args, **kwargs):
+        if self.logo and hasattr(self.logo, 'file'):
+            try:
+                compressed = compress_image(self.logo)
+                if compressed and compressed is not self.logo:
+                    self.logo = compressed
+            except Exception:
+                pass
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.name
+
 class StorePaymentMethod(models.Model):
     store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='payment_methods')
+    global_payment_method = models.ForeignKey(
+        GlobalPaymentMethod,
+        on_delete=models.PROTECT,
+        related_name='store_methods',
+        null=True,
+        blank=True,
+        help_text="Underlying global payment option template"
+    )
     provider = models.CharField(max_length=100, help_text="e.g. M-Pesa, Bank Transfer, Cash")
     account_name = models.CharField(max_length=255, blank=True, null=True)
     account_number = models.CharField(max_length=100, blank=True, null=True)
@@ -151,6 +178,9 @@ class SystemSupportConfig(models.Model):
     support_email = models.EmailField(default="support@chapuu.co.tz", help_text="Support email address (mailto:)")
     support_sms = models.CharField(max_length=50, default="+255 700 000 000", help_text="Support SMS number (sms:)")
     support_whatsapp = models.CharField(max_length=100, default="255700000000", help_text="WhatsApp number (without '+' or leading zeros) or link")
+    seller_support_phone = models.CharField(max_length=50, default="+255 700 000 111", help_text="Dedicated Seller Support Telephone")
+    seller_support_email = models.EmailField(default="vendor-support@chapuu.co.tz", help_text="Dedicated Seller Support Email")
+    seller_support_sms = models.CharField(max_length=50, default="+255 700 000 111", help_text="Dedicated Seller Support SMS")
     policy_warning = models.TextField(
         default="Violation of the system's policy (such as consecutive delivery locking or fraud) can get your store taken down permanently.",
         help_text="Policy warning shown to sellers for violations."

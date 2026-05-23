@@ -68,6 +68,9 @@ class Order(models.Model):
         choices=[('PENDING', 'Pending Approval'), ('APPROVED', 'Approved'), ('REJECTED', 'Rejected')],
         null=True, blank=True
     )
+    reschedule_rejection_reason = models.TextField(blank=True, null=True, help_text="Reason why the reschedule request was rejected")
+    reschedule_count = models.PositiveIntegerField(default=0, help_text="Number of times this order has been successfully rescheduled")
+    reschedule_request_count = models.PositiveIntegerField(default=0, help_text="Number of reschedule requests submitted by the customer")
 
     is_instant_payment = models.BooleanField(
         default=False,
@@ -104,3 +107,19 @@ class OrderEventLog(models.Model):
 
     def __str__(self):
         return f"Order #{self.order.id} Event: {self.previous_state} -> {self.new_state}"
+
+class OrderRescheduleRequest(models.Model):
+    class Status(models.TextChoices):
+        PENDING = 'PENDING', 'Pending Approval'
+        APPROVED = 'APPROVED', 'Approved'
+        REJECTED = 'REJECTED', 'Rejected'
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='reschedule_requests')
+    requested_time = models.DateTimeField(help_text="Requested scheduled_time")
+    requested_start_time = models.DateTimeField(help_text="Requested prep start time")
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
+    rejection_reason = models.TextField(blank=True, null=True, help_text="Reason for rejection")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Reschedule Request for Order #{self.order.id} - {self.status}"

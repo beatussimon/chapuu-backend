@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from catalog.models import Product, Category, InventoryStock, Ingredient, RecipeIngredient
+from stores.models import Store
 
 class ProductSerializer(serializers.ModelSerializer):
     category_name = serializers.SerializerMethodField()
@@ -58,6 +59,7 @@ class ProductSerializer(serializers.ModelSerializer):
 
 class CategorySerializer(serializers.ModelSerializer):
     product_count = serializers.SerializerMethodField()
+    store = serializers.PrimaryKeyRelatedField(queryset=Store.objects.all(), required=False, allow_null=True)
 
     class Meta:
         model = Category

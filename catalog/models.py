@@ -3,7 +3,7 @@ from stores.models import Store
 from config.image_utils import compress_image
 
 class Category(models.Model):
-    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='categories')
+    store = models.ForeignKey(Store, on_delete=models.CASCADE, related_name='categories', null=True, blank=True)
     name = models.CharField(max_length=100)
 
     def __str__(self):
@@ -32,6 +32,14 @@ class Product(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):
+        # Round price to nearest integer only if it is very close (diff < 0.05), which perfectly filters exchange rate rounding noise while preserving valid decimals (e.g. 15.50)
+        if self.price is not None:
+            from decimal import Decimal
+            price_val = Decimal(str(self.price))
+            nearest_int = price_val.quantize(Decimal('1.'))
+            if abs(price_val - nearest_int) < Decimal('0.05'):
+                self.price = nearest_int
+
         # Auto-compress images to WebP on new upload
         if self.image and hasattr(self.image, 'file'):
             try:

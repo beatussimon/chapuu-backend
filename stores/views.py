@@ -2,11 +2,22 @@ from rest_framework import viewsets, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db.models import Q
-from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod, SystemSupportConfig, StoreGalleryImage
-from stores.serializers import StoreSerializer, KitchenSettingsSerializer, AdvertisementSerializer, CurrencyConfigSerializer, TableSerializer, NoticeSerializer, StorePaymentMethodSerializer, SystemSupportConfigSerializer, StoreGalleryImageSerializer
+from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod, SystemSupportConfig, StoreGalleryImage, GlobalPaymentMethod
+from stores.serializers import StoreSerializer, KitchenSettingsSerializer, AdvertisementSerializer, CurrencyConfigSerializer, TableSerializer, NoticeSerializer, StorePaymentMethodSerializer, SystemSupportConfigSerializer, StoreGalleryImageSerializer, GlobalPaymentMethodSerializer
 from stores.services import KitchenEngine
 from reviews.models import StoreReview
 from reviews.serializers import StoreReviewSerializer
+
+class IsAdminOrReadOnly(permissions.BasePermission):
+    def has_permission(self, request, view):
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return request.user.is_authenticated and (request.user.role == 'ADMIN' or request.user.is_superuser)
+
+class GlobalPaymentMethodViewSet(viewsets.ModelViewSet):
+    queryset = GlobalPaymentMethod.objects.all()
+    serializer_class = GlobalPaymentMethodSerializer
+    permission_classes = [IsAdminOrReadOnly]
 
 class IsSellerOrAdminForWriteStore(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -156,9 +167,15 @@ class AdvertisementViewSet(viewsets.ModelViewSet):
         return queryset
 
 class StoreViewSet(viewsets.ModelViewSet):
-    queryset = Store.objects.filter(is_active=True).prefetch_related('payment_methods', 'kitchen_settings')
+    queryset = Store.objects.all().prefetch_related('payment_methods', 'kitchen_settings')
     serializer_class = StoreSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user and user.is_authenticated and (user.role == 'ADMIN' or user.is_superuser):
+            return Store.objects.all().prefetch_related('payment_methods', 'kitchen_settings')
+        return Store.objects.filter(is_active=True).prefetch_related('payment_methods', 'kitchen_settings')
     
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)

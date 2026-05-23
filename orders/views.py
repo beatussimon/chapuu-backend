@@ -218,29 +218,82 @@ class OrderViewSet(viewsets.ModelViewSet):
         order = self.get_object()
         if order.customer != request.user:
             return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
-        if order.state != Order.State.PAID or order.scheduled_time is None:
-            return Response({"error": "Only upcoming paid scheduled orders can be rescheduled"}, status=status.HTTP_400_BAD_REQUEST)
             
+        if order.state not in [Order.State.PAID, Order.State.QUEUED] or order.scheduled_time is None:
+            return Response({"error": "Only upcoming paid or queued scheduled orders can be rescheduled"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        if getattr(order, 'reschedule_count', 0) >= 1:
+            return Response({"error": "You can only reschedule this order once."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if getattr(order, 'reschedule_request_count', 0) >= 2:
+            return Response({"error": "You have reached the maximum limit of reschedule requests (2)."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from django.utils import timezone
+        if order.scheduled_start_time and timezone.now() > order.scheduled_start_time:
+            return Response({"error": "Preparation window has already started. Rescheduling is not allowed."}, status=status.HTTP_400_BAD_REQUEST)
+
         new_scheduled_time = request.data.get('scheduled_time')
-        new_start_time = request.data.get('scheduled_start_time')
-        
         if not new_scheduled_time:
             return Response({"error": "scheduled_time is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         from django.utils.dateparse import parse_datetime
-        from django.utils import timezone
-        
         parsed_scheduled_time = parse_datetime(new_scheduled_time) if isinstance(new_scheduled_time, str) else new_scheduled_time
         if not parsed_scheduled_time:
             return Response({"error": "Invalid scheduled_time format"}, status=status.HTTP_400_BAD_REQUEST)
 
+        if timezone.is_naive(parsed_scheduled_time):
+            parsed_scheduled_time = timezone.make_aware(parsed_scheduled_time)
+
         if parsed_scheduled_time <= timezone.now():
             return Response({"error": "New scheduled time must be in the future"}, status=status.HTTP_400_BAD_REQUEST)
-            
-        order.reschedule_requested_time = new_scheduled_time
+
+        # Recalculate scheduled_start_time dynamically if DYNAMIC option is selected
+        from datetime import timedelta
+        new_start_time = None
+        if order.prep_time_option == 'DYNAMIC':
+            max_prep = max((item.product.get_average_prep_time() for item in order.items.all()), default=0)
+            new_start_time = parsed_scheduled_time - timedelta(minutes=max_prep)
+            if new_start_time <= timezone.now():
+                return Response({
+                    "error": f"Requested time is too close. The kitchen needs at least {max_prep} minutes to prepare this order."
+                }, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            # CUSTOM option
+            custom_start = request.data.get('scheduled_start_time')
+            if custom_start:
+                parsed_start = parse_datetime(custom_start) if isinstance(custom_start, str) else custom_start
+                if not parsed_start:
+                    return Response({"error": "Invalid custom start time format"}, status=status.HTTP_400_BAD_REQUEST)
+                if timezone.is_naive(parsed_start):
+                    parsed_start = timezone.make_aware(parsed_start)
+                if parsed_start <= timezone.now() or parsed_start >= parsed_scheduled_time:
+                    return Response({"error": "Custom start time must be in the future and before the scheduled delivery/pickup time."}, status=status.HTTP_400_BAD_REQUEST)
+                new_start_time = parsed_start
+            else:
+                # If they didn't provide scheduled_start_time for CUSTOM, keep the same diff
+                if order.scheduled_start_time and order.scheduled_time:
+                    diff = order.scheduled_time - order.scheduled_start_time
+                    new_start_time = parsed_scheduled_time - diff
+                    if timezone.is_naive(new_start_time):
+                        new_start_time = timezone.make_aware(new_start_time)
+                    if new_start_time <= timezone.now():
+                        return Response({"error": "Rescheduled start time would be in the past. Please select a later time."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from orders.models import OrderRescheduleRequest
+        # Create a new history log row
+        OrderRescheduleRequest.objects.create(
+            order=order,
+            requested_time=parsed_scheduled_time,
+            requested_start_time=new_start_time,
+            status='PENDING'
+        )
+
+        order.reschedule_requested_time = parsed_scheduled_time
         order.reschedule_requested_start_time = new_start_time
         order.reschedule_status = 'PENDING'
-        order.save(update_fields=['reschedule_requested_time', 'reschedule_requested_start_time', 'reschedule_status'])
+        order.reschedule_rejection_reason = None
+        order.reschedule_request_count = getattr(order, 'reschedule_request_count', 0) + 1
+        order.save(update_fields=['reschedule_requested_time', 'reschedule_requested_start_time', 'reschedule_status', 'reschedule_rejection_reason', 'reschedule_request_count'])
         
         # Broadcast notice to store
         OrderStateMachine.emit_update(order)
@@ -256,18 +309,50 @@ class OrderViewSet(viewsets.ModelViewSet):
         if order.reschedule_status != 'PENDING':
             return Response({"error": "No pending reschedule request exists for this order"}, status=status.HTTP_400_BAD_REQUEST)
             
+        pending_req = order.reschedule_requests.filter(status='PENDING').first()
+        if not pending_req:
+            return Response({"error": "No pending reschedule request log exists for this order"}, status=status.HTTP_400_BAD_REQUEST)
+
         approve = request.data.get('approve', False)
         if approve:
-            order.scheduled_time = order.reschedule_requested_time
-            order.scheduled_start_time = order.reschedule_requested_start_time
+            if getattr(order, 'reschedule_count', 0) >= 1:
+                return Response({"error": "This order has already been rescheduled the maximum number of times (1)."}, status=status.HTTP_400_BAD_REQUEST)
+            
+            pending_req.status = 'APPROVED'
+            pending_req.save(update_fields=['status'])
+
+            order.scheduled_time = pending_req.requested_time
+            order.scheduled_start_time = pending_req.requested_start_time
             order.reschedule_status = 'APPROVED'
-            order.save(update_fields=['scheduled_time', 'scheduled_start_time', 'reschedule_status'])
+            order.reschedule_count = getattr(order, 'reschedule_count', 0) + 1
+            order.reschedule_rejection_reason = None
+            order.save(update_fields=['scheduled_time', 'scheduled_start_time', 'reschedule_status', 'reschedule_count', 'reschedule_rejection_reason'])
         else:
+            rejection_reason = request.data.get('rejection_reason')
+            if not rejection_reason or not rejection_reason.strip():
+                return Response({"error": "A rejection reason is required when rejecting a reschedule request."}, status=status.HTTP_400_BAD_REQUEST)
+            
+            pending_req.status = 'REJECTED'
+            pending_req.rejection_reason = rejection_reason.strip()
+            pending_req.save(update_fields=['status', 'rejection_reason'])
+
             order.reschedule_status = 'REJECTED'
-            order.save(update_fields=['reschedule_status'])
+            order.reschedule_rejection_reason = rejection_reason.strip()
+            order.save(update_fields=['reschedule_status', 'reschedule_rejection_reason'])
             
         OrderStateMachine.emit_update(order)
         return Response({"status": f"Reschedule request {'approved' if approve else 'rejected'}", "reschedule_status": order.reschedule_status})
+
+    @action(detail=True, methods=['post'], url_path='admin_reset_lock', permission_classes=[permissions.IsAuthenticated])
+    def admin_reset_lock(self, request, pk=None):
+        order = self.get_object()
+        if request.user.role != 'ADMIN':
+            return Response({"error": "Permission denied. Only platform administrators can reset locks."}, status=status.HTTP_403_FORBIDDEN)
+        order.is_locked = False
+        order.delivery_code_attempts = 0
+        order.save(update_fields=['is_locked', 'delivery_code_attempts'])
+        OrderStateMachine.emit_update(order)
+        return Response({"status": "Order unlocked and verification attempts reset."})
 
     @action(detail=True, methods=['post'], url_path=r'items/(?P<item_id>\d+)/ready', permission_classes=[permissions.IsAuthenticated])
     def mark_item_ready(self, request, pk=None, item_id=None):
