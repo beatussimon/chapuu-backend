@@ -23,12 +23,12 @@ def compress_image(image_field, quality=70, max_width=1200):
         img = img.resize((max_width, new_height), Image.Resampling.LANCZOS)
         
     temp_io = BytesIO()
-    img.save(temp_io, format="JPEG", quality=quality, optimize=True)
+    img.save(temp_io, format="WEBP", quality=quality)
     
     # Extract filename without path
     filename = os.path.basename(image_field.name)
-    # Ensure .jpg extension for the compressed version
+    # Ensure .webp extension for the compressed version
     name_parts = os.path.splitext(filename)
-    new_filename = f"{name_parts[0]}_compressed.jpg"
+    new_filename = f"{name_parts[0]}_compressed.webp"
     
     return ContentFile(temp_io.getvalue(), name=new_filename)

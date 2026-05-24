@@ -29,7 +29,7 @@ class Order(models.Model):
     table = models.ForeignKey(Table, on_delete=models.SET_NULL, null=True, blank=True, related_name='orders')
     reservation = models.OneToOneField('reservations.Reservation', on_delete=models.SET_NULL, null=True, blank=True, related_name='linked_order')
     
-    state = models.CharField(max_length=20, choices=State.choices, default=State.CREATED)
+    state = models.CharField(max_length=20, choices=State.choices, default=State.CREATED, db_index=True)
     fulfillment_mode = models.CharField(max_length=20, choices=FulfillmentMode.choices)
     
     customer_phone = models.CharField(max_length=50, blank=True, null=True)
@@ -48,7 +48,7 @@ class Order(models.Model):
     payment_message = models.TextField(blank=True, null=True, help_text="User's text transaction slip or confirmation ID.")
     payment_receipt = models.ImageField(upload_to='receipts/', blank=True, null=True, help_text="User's uploaded receipt image.")
     
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
     scheduled_time = models.DateTimeField(null=True, blank=True)
 
@@ -87,6 +87,12 @@ class Order(models.Model):
             "Must NOT be used with DELIVERY fulfillment mode."
         )
     )
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['store', 'state'], name='order_store_state_idx'),
+            models.Index(fields=['store', 'created_at'], name='order_store_created_idx'),
+        ]
 
     def __str__(self):
         return f"Order #{self.id} for {self.store.name} - {self.state}"

@@ -31,6 +31,11 @@ class Product(models.Model):
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['store', 'is_active'], name='product_store_active_idx'),
+        ]
+
     def save(self, *args, **kwargs):
         # Round price to nearest integer only if it is very close (diff < 0.05), which perfectly filters exchange rate rounding noise while preserving valid decimals (e.g. 15.50)
         if self.price is not None:
