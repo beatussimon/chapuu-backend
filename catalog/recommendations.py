@@ -20,28 +20,20 @@ def proximity_score(distance_km, max_radius_km=2.0):
     decay_factor = max(float(max_radius_km) * 0.5, 0.5)
     return math.exp(-(d - 0.3) / decay_factor)
 
-def personal_store_score(store, user):
+def personal_store_score(store_id, user_orders_by_store, now):
     """
-    Boost stores based on both completed order counts and order recency.
-    Orders made recently trigger an exponential decay boost to prevent stagnant historical bias.
+    Boost stores based on completed order counts and order recency from pre-fetched in-memory dict.
     """
-    if not user or not user.is_authenticated:
+    orders = user_orders_by_store.get(store_id, [])
+    if not orders:
         return 0.0
-    try:
-        past_orders = Order.objects.filter(customer=user, store=store, state='COMPLETED').order_by('-created_at')
-        if not past_orders.exists():
-            return 0.0
+    
+    score = 0.0
+    for order in orders:
+        days_elapsed = (now - order['created_at']).days
+        score += math.exp(-days_elapsed / 30.0)  # Decays exponentially every 30 days
         
-        now = timezone.now()
-        score = 0.0
-        # Check last 10 completed orders to keep it fast
-        for order in past_orders[:10]:
-            days_elapsed = (now - order.created_at).days
-            score += math.exp(-days_elapsed / 30.0)  # Decays exponentially every 30 days
-            
-        return min(score / 3.0, 1.0)  # Capped at 1.0 (equivalent to ~3 recent monthly orders)
-    except Exception:
-        return 0.0
+    return min(score / 3.0, 1.0)  # Capped at 1.0 (equivalent to ~3 recent monthly orders)
 
 def score_stores(stores_list, lat=None, lng=None, max_radius_km=2.0, user=None, q=None):
     """
@@ -71,6 +63,25 @@ def score_stores(stores_list, lat=None, lng=None, max_radius_km=2.0, user=None, 
     max_orders = max(order_counts.values()) if order_counts else 1
     now = timezone.now()
 
+    # Pre-fetch user's completed orders once to prevent N+1 queries in personal_store_score loop
+    user_orders_by_store = {}
+    if user and user.is_authenticated:
+        try:
+            # Query all completed orders for this user, ordered by recency
+            user_orders = (
+                Order.objects.filter(customer=user, store_id__in=store_ids, state='COMPLETED')
+                .order_by('-created_at')
+                .values('store_id', 'created_at')
+            )
+            for order in user_orders:
+                s_id = order['store_id']
+                if s_id not in user_orders_by_store:
+                    user_orders_by_store[s_id] = []
+                if len(user_orders_by_store[s_id]) < 10:
+                    user_orders_by_store[s_id].append(order)
+        except Exception:
+            pass
+
     scored_stores = []
     for store in stores_list:
         # 1. Proximity score (40% weight)
@@ -94,7 +105,7 @@ def score_stores(stores_list, lat=None, lng=None, max_radius_km=2.0, user=None, 
         fresh_val = math.exp(-days_since_creation / 30.0)  # Decays smoothly over 30 days
 
         # 5. Personal history score (10% weight)
-        pers_val = personal_store_score(store, user)
+        pers_val = personal_store_score(store.id, user_orders_by_store, now)
 
         # 6. Text Query Specificity Match Score (5% weight)
         text_val = 1.0

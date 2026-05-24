@@ -38,8 +38,9 @@ class BillboardStatsViewSet(viewsets.ViewSet):
                 scored_stores = score_stores(stores, lat_f, lng_f, max_radius_km=5.0, user=request.user)
                 top_stores = scored_stores[:4]
                 
-                # Fetch products and score them
-                products = list(Product.objects.select_related('store', 'stock').prefetch_related('recipe_ingredients__ingredient__stock').filter(is_active=True, store__is_active=True))
+                # Fetch products and score them - pre-filtered by nearby store IDs to prevent loading the entire database
+                nearby_store_ids = [s.id for s in scored_stores if getattr(s, 'distance_km', 999.0) <= 5.0]
+                products = list(Product.objects.select_related('store', 'stock').prefetch_related('recipe_ingredients__ingredient__stock').filter(is_active=True, store__is_active=True, store_id__in=nearby_store_ids))
                 # Exclude out-of-stock items
                 products = [p for p in products if p.check_stock_available(1)[0]]
                 # Add distance_km map

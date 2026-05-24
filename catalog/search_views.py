@@ -64,7 +64,6 @@ class UniversalSearchView(APIView):
 
         # 4. Proximity Math & Scoring
         stores_list = list(stores_qs)
-        products_list = list(products_qs)
         
         # Distance-annotate and filter stores/products if coordinates are present
         location_active = False
@@ -83,11 +82,13 @@ class UniversalSearchView(APIView):
                 if radius > 0:
                     stores_list = filter_by_radius(stores_list, radius)
                 
-                # Filter products to only those from stores within the radius/proximity list
+                # Filter products to only those from stores within the radius/proximity list in the database
                 allowed_store_ids = {s.id for s in stores_list}
-                products_list = [p for p in products_list if p.store_id in allowed_store_ids]
+                products_qs = products_qs.filter(store_id__in=allowed_store_ids)
             except (ValueError, TypeError):
                 pass
+
+        products_list = list(products_qs)
 
         # Apply scoring algorithms
         scoring_radius = radius if (lat and lng and radius > 0) else 2.0
