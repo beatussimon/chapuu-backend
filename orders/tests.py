@@ -364,3 +364,75 @@ class PreorderReschedulingAndSafetyTests(TestCase):
         order.refresh_from_db()
         self.assertFalse(order.is_locked)
         self.assertEqual(order.delivery_code_attempts, 0)
+
+class FreeTrialCommissionTest(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.seller = User.objects.create_user(
+            username='seller_trial', password='password123', role='SELLER'
+        )
+        self.store = Store.objects.create(
+            name='Promo Shop',
+            owner=self.seller,
+            store_type='SHOP'
+        )
+        self.product = Product.objects.create(
+            name='Promo Product',
+            price=20.0,
+            store=self.store
+        )
+        self.client.force_authenticate(user=self.seller)
+
+    def test_commission_accrual_during_free_trial(self):
+        """
+        Verify that order completions during active free trial accrue 0.00 commission.
+        """
+        from django.utils import timezone
+        import datetime
+        from billing.models import CommissionLedgerEntry
+        from orders.services import OrderStateMachine
+        
+        # Configure active free trial (from yesterday to tomorrow)
+        self.store.free_trial_start = timezone.now() - datetime.timedelta(days=1)
+        self.store.free_trial_end = timezone.now() + datetime.timedelta(days=1)
+        self.store.save()
+        
+        order = Order.objects.create(
+            store=self.store,
+            total_amount=20.0,
+            state=Order.State.READY
+        )
+        
+        # Transition to COMPLETED
+        OrderStateMachine.transition_order(order, Order.State.COMPLETED, bypass_verification=True)
+        
+        # Verify 0.00 commission is accrued
+        entry = CommissionLedgerEntry.objects.filter(order=order).first()
+        self.assertIsNotNone(entry)
+        self.assertEqual(float(entry.commission_amount), 0.00)
+
+    def test_commission_accrual_outside_free_trial(self):
+        """
+        Verify standard 3% commission is accrued outside free trial window.
+        """
+        from billing.models import CommissionLedgerEntry
+        from orders.services import OrderStateMachine
+        
+        # No free trial dates set
+        self.store.free_trial_start = None
+        self.store.free_trial_end = None
+        self.store.save()
+        
+        order = Order.objects.create(
+            store=self.store,
+            total_amount=20.0,
+            state=Order.State.READY
+        )
+        
+        # Transition to COMPLETED
+        OrderStateMachine.transition_order(order, Order.State.COMPLETED, bypass_verification=True)
+        
+        # Verify 3% commission is accrued (20.0 * 0.03 = 0.60)
+        entry = CommissionLedgerEntry.objects.filter(order=order).first()
+        self.assertIsNotNone(entry)
+        self.assertEqual(float(entry.commission_amount), 0.60)

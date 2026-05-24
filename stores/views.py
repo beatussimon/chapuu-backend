@@ -188,6 +188,52 @@ class StoreViewSet(viewsets.ModelViewSet):
             return Store.objects.all().prefetch_related('payment_methods', 'kitchen_settings')
         return Store.objects.filter(is_active=True).prefetch_related('payment_methods', 'kitchen_settings')
     
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        # Apply search filter
+        search = request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(Q(name__icontains=search) | Q(location__icontains=search))
+            
+        # Apply is_open filter
+        is_open = request.query_params.get('is_open')
+        if is_open in ['true', 'True', '1']:
+            queryset = queryset.filter(is_open=True)
+        elif is_open in ['false', 'False', '0']:
+            queryset = queryset.filter(is_open=False)
+            
+        # Apply store_type filter
+        store_type = request.query_params.get('store_type')
+        if store_type:
+            queryset = queryset.filter(store_type=store_type)
+
+        lat = request.query_params.get('lat')
+        lng = request.query_params.get('lng')
+        
+        if lat and lng:
+            from stores.geo_utils import annotate_distances, filter_by_radius
+            stores_list = annotate_distances(queryset, lat, lng)
+            radius = request.query_params.get('radius')
+            if radius:
+                stores_list = filter_by_radius(stores_list, radius)
+            
+            page = self.paginate_queryset(stores_list)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
+            
+            serializer = self.get_serializer(stores_list, many=True)
+            return Response(serializer.data)
+            
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+    
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():

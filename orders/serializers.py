@@ -40,7 +40,7 @@ class OrderSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             'id', 'store', 'store_name', 'store_phone', 'customer', 'customer_name', 'table', 'table_number', 'reservation', 'reservation_time', 'reservation_status', 'reservation_guest_count', 'state', 
-            'fulfillment_mode', 'customer_phone', 'delivery_location', 'total_amount', 'delivery_fee', 'created_at', 
+            'fulfillment_mode', 'customer_phone', 'delivery_location', 'delivery_latitude', 'delivery_longitude', 'delivery_directions', 'total_amount', 'delivery_fee', 'created_at', 
             'updated_at', 'scheduled_time', 'is_instant_payment', 'items', 'payment_message', 'payment_receipt', 'has_review', 'review_details',
             'delivery_code', 'delivery_code_attempts', 'is_locked', 'is_suspicious', 'prep_time_option', 'scheduled_start_time', 
             'reschedule_requested_time', 'reschedule_requested_start_time', 'reschedule_status', 'reschedule_rejection_reason', 'reschedule_count', 'reschedule_request_count', 'reschedule_requests'
@@ -81,6 +81,15 @@ class OrderSerializer(serializers.ModelSerializer):
         is_instant = data.get('is_instant_payment', False)
         fulfillment_mode = data.get('fulfillment_mode', '')
         payment_message = data.get('payment_message', '').strip() if data.get('payment_message') else ''
+
+        # Dine-in Table validation based on store settings
+        if fulfillment_mode == Order.FulfillmentMode.DINE_IN:
+            store = data.get('store')
+            table = data.get('table')
+            if store and getattr(store, 'requires_table_for_dine_in', True) and not table:
+                raise serializers.ValidationError({
+                    "table": "Table selection is required for dine-in at this store."
+                })
 
         # Transaction ID / Proof of Payment is mandatory for non-instant payments
         if not is_instant and not payment_message:

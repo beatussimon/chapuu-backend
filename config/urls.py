@@ -85,6 +85,8 @@ router.register(r'store-gallery', StoreGalleryImageViewSet, basename='store-gall
 router.register(r'staff', StaffManagementViewSet, basename='staff')
 router.register(r'system-support', SystemSupportConfigViewSet, basename='system-support')
 
+from catalog.search_views import UniversalSearchView
+
 urlpatterns = [
     path('', root_redirect),
     path('favicon.ico', favicon_view),
@@ -93,6 +95,7 @@ urlpatterns = [
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/register/', CustomerRegistrationView.as_view(), name='api_register'),
     path('api/auth/users/me/', CurrentUserView.as_view(), name='current_user'),
+    path('api/search/', UniversalSearchView.as_view(), name='universal-search'),
     path('api/health/', health_check, name='health'),
     path('api/billing/', include('billing.urls')),
     path('api/', include(router.urls)),

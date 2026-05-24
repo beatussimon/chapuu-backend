@@ -129,6 +129,53 @@ class PlatformAnalyticsViewSet(viewsets.ViewSet):
             'failed_handoff_attempts': failed_handoff_attempts,
         }
 
+        # 7. Spatial Analytics (Haversine distances for completed deliveries)
+        from stores.geo_utils import haversine_km
+
+        delivery_orders = completed_orders.filter(
+            fulfillment_mode=Order.FulfillmentMode.DELIVERY,
+            delivery_latitude__isnull=False,
+            delivery_longitude__isnull=False
+        ).select_related('store')
+
+        distances = []
+        hyperlocal_count = 0  # <= 0.5 km
+        medium_count = 0      # 0.5 km - 2.0 km
+        long_count = 0        # > 2.0 km
+
+        for order in delivery_orders:
+            if (order.store.latitude is not None and 
+                order.store.longitude is not None and 
+                order.delivery_latitude is not None and 
+                order.delivery_longitude is not None):
+                
+                dist = haversine_km(
+                    order.store.latitude, order.store.longitude,
+                    order.delivery_latitude, order.delivery_longitude
+                )
+                if dist is not None:
+                    distances.append(dist)
+                    if dist <= 0.5:
+                        hyperlocal_count += 1
+                    elif dist <= 2.0:
+                        medium_count += 1
+                    else:
+                        long_count += 1
+
+        avg_distance = sum(distances) / len(distances) if distances else 0.0
+        max_distance = max(distances) if distances else 0.0
+
+        spatial_analytics = {
+            'average_distance_km': round(avg_distance, 2),
+            'max_distance_km': round(max_distance, 2),
+            'total_deliveries_analyzed': len(distances),
+            'zones': {
+                'hyperlocal': hyperlocal_count,
+                'medium': medium_count,
+                'long': long_count
+            }
+        }
+
         # Auto insights for platform growth/security
         insights = []
         if locked_orders_count > 0:
@@ -140,6 +187,13 @@ class PlatformAnalyticsViewSet(viewsets.ViewSet):
         if float(gpv) > 0.0:
             avg_comm = (float(platform_commission) / float(gpv)) * 100
             insights.append(f"📈 Platform is operating at an average commission rate of {round(avg_comm, 2)}%.")
+        
+        if len(distances) > 0:
+            insights.append(f"🛵 The average delivery distance is {round(avg_distance, 2)} km across the platform.")
+            if hyperlocal_count > max(medium_count, long_count):
+                insights.append("📍 Hyper-local deliveries (<=0.5km) dominate, indicating high community concentration around merchants.")
+            elif long_count > 0:
+                insights.append(f"🌍 Long-range deliveries (>2km) comprise {round(long_count / len(distances) * 100, 1)}% of orders.")
 
         return Response({
             'kpi': kpi,
@@ -148,6 +202,7 @@ class PlatformAnalyticsViewSet(viewsets.ViewSet):
             'state_funnel': state_funnel,
             'total_orders_count': total_orders_count,
             'safety_disputes': safety_disputes,
+            'spatial_analytics': spatial_analytics,
             'insights': insights,
             'date_range': {'from': start.isoformat(), 'to': end.isoformat()}
         })

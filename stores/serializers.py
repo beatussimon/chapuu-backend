@@ -112,14 +112,15 @@ class StoreSerializer(serializers.ModelSerializer):
     payment_methods = StorePaymentMethodSerializer(many=True, read_only=True)
     gallery_images = StoreGalleryImageSerializer(many=True, read_only=True)
     image_url = serializers.SerializerMethodField()
+    distance_km = serializers.SerializerMethodField()
     
     class Meta:
         model = Store
         fields = [
-            'id', 'owner', 'name', 'store_type', 'location', 'contact_phone', 
+            'id', 'owner', 'name', 'store_type', 'location', 'latitude', 'longitude', 'directions', 'requires_table_for_dine_in', 'contact_phone', 
             'contact_email', 'image', 'image_url', 'is_active', 'is_open', 
-            'base_delivery_fee', 'created_at', 'kitchen_settings', 'payment_methods',
-            'gallery_images'
+            'base_delivery_fee', 'created_at', 'free_trial_start', 'free_trial_end', 'kitchen_settings', 'payment_methods',
+            'gallery_images', 'distance_km'
         ]
 
     def get_image_url(self, obj):
@@ -129,6 +130,33 @@ class StoreSerializer(serializers.ModelSerializer):
                 return request.build_absolute_uri(obj.image.url)
             return obj.image.url
         return None
+
+    def get_distance_km(self, obj):
+        return getattr(obj, 'distance_km', None)
+
+    def validate(self, attrs):
+        request = self.context.get('request')
+        user = request.user if request else None
+        
+        # Check if this is an update to an existing store
+        if self.instance and user:
+            # Check if user is a regular seller (not admin or superuser)
+            is_admin_or_su = user.role in ['ADMIN', 'SUPERUSER'] or user.is_superuser
+            if not is_admin_or_su:
+                # Detect if the store has coordinates already registered
+                has_registered_coords = (self.instance.latitude is not None and self.instance.latitude != '') and \
+                                         (self.instance.longitude is not None and self.instance.longitude != '')
+                
+                # Check if coordinates or geocoded address text are attempting to be modified
+                lat_changing = 'latitude' in attrs and attrs['latitude'] != self.instance.latitude
+                lng_changing = 'longitude' in attrs and attrs['longitude'] != self.instance.longitude
+                loc_changing = 'location' in attrs and attrs['location'] != self.instance.location
+                
+                if has_registered_coords and (lat_changing or lng_changing or loc_changing):
+                    raise serializers.ValidationError({
+                        "latitude": "Store location coordinates are already registered and locked. Please contact support to request updates."
+                    })
+        return attrs
 
 class TableSerializer(serializers.ModelSerializer):
     class Meta:

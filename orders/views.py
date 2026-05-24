@@ -118,18 +118,25 @@ class OrderViewSet(viewsets.ModelViewSet):
                 from decimal import Decimal
                 from billing.models import CommissionLedgerEntry
                 from payments.models import Refund, Payment
+                from django.utils import timezone
                 
-                # Calculate 6% cancellation fee
-                platform_share = order.total_amount * Decimal('0.03')
-                refund_amount = order.total_amount * Decimal('0.94')
+                # Check if store is currently under an active free trial
+                is_free_trial = False
+                store = order.store
+                if store.free_trial_start and store.free_trial_end:
+                    is_free_trial = store.free_trial_start <= timezone.now() <= store.free_trial_end
+                
+                # Calculate 6% cancellation fee (waived to 0% platform share during trial)
+                platform_share = Decimal('0.00') if is_free_trial else (order.total_amount * Decimal('0.03'))
+                refund_amount = order.total_amount if is_free_trial else (order.total_amount * Decimal('0.94'))
                 
                 # Cancel the order first
-                OrderStateMachine.transition_order(order, Order.State.CANCELLED, notes="Scheduled order cancelled by customer. 6% fee applied.", performed_by=request.user)
+                OrderStateMachine.transition_order(order, Order.State.CANCELLED, notes="Scheduled order cancelled by customer. 6% fee applied (Waived under trial)." if is_free_trial else "Scheduled order cancelled by customer. 6% fee applied.", performed_by=request.user)
                 
-                # Record platform's 3% share in the commission ledger
+                # Record platform's share in the commission ledger
                 CommissionLedgerEntry.objects.create(
                     order=order,
-                    store=order.store,
+                    store=store,
                     order_amount=order.total_amount,
                     commission_amount=platform_share,
                     entry_type=CommissionLedgerEntry.EntryType.CANCELLATION_FEE

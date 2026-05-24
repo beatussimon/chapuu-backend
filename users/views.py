@@ -59,6 +59,13 @@ class StaffManagementViewSet(viewsets.ModelViewSet):
         return Response({"status": "Staff deactivated and sessions terminated."})
 
     @action(detail=True, methods=['post'])
+    def reactivate(self, request, pk=None):
+        staff = self.get_object()
+        staff.is_active = True
+        staff.save()
+        return Response({"status": "Staff reactivated and re-hired successfully."})
+
+    @action(detail=True, methods=['post'])
     def reset_password(self, request, pk=None):
         staff = self.get_object()
         new_password = request.data.get('password')

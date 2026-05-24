@@ -40,6 +40,35 @@ class MonthlyInvoiceViewSet(viewsets.ReadOnlyModelViewSet):
             return MonthlyInvoice.objects.all()
         return MonthlyInvoice.objects.filter(store__owner=user)
 
+    @action(detail=False, methods=['get'])
+    def current_month_preview(self, request):
+        """Current month's accrued commission before invoice generation."""
+        now = timezone.now()
+        store = Store.objects.filter(owner=request.user).first()
+        if not store:
+            return Response({
+                'month': now.strftime('%B %Y'),
+                'accrued_commission': 0.0,
+                'order_count': 0,
+                'days_remaining': 0
+            })
+        
+        entries = CommissionLedgerEntry.objects.filter(
+            store=store, created_at__year=now.year, created_at__month=now.month
+        )
+        total_commission = entries.aggregate(total=Sum('commission_amount'))['total'] or Decimal('0.00')
+        
+        import calendar
+        last_day = calendar.monthrange(now.year, now.month)[1]
+        days_remaining = last_day - now.day
+
+        return Response({
+            'month': now.strftime('%B %Y'),
+            'accrued_commission': float(total_commission),
+            'order_count': entries.count(),
+            'days_remaining': days_remaining,
+        })
+
 class CommissionPaymentViewSet(viewsets.ModelViewSet):
     serializer_class = CommissionPaymentSerializer
     permission_classes = [IsSellerOrAdmin]

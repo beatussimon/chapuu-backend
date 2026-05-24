@@ -82,15 +82,24 @@ class OrderStateMachine:
                         loyalty_points=F('loyalty_points') + int(locked_order.total_amount)
                     )
 
-            # Accrue 3% platform commission on order completion
+            # Accrue 3% platform commission on order completion (Waived to 0.00 during Free Trial)
             if new_state == Order.State.COMPLETED:
                 from billing.models import CommissionLedgerEntry
                 from decimal import Decimal
+                from django.utils import timezone
+                
+                is_free_trial = False
+                store = locked_order.store
+                if store.free_trial_start and store.free_trial_end:
+                    is_free_trial = store.free_trial_start <= timezone.now() <= store.free_trial_end
+                    
+                commission_amount = Decimal('0.00') if is_free_trial else (locked_order.total_amount * Decimal('0.03'))
+                
                 CommissionLedgerEntry.objects.create(
                     order=locked_order,
-                    store=locked_order.store,
+                    store=store,
                     order_amount=locked_order.total_amount,
-                    commission_amount=locked_order.total_amount * Decimal('0.03'),
+                    commission_amount=commission_amount,
                     entry_type=CommissionLedgerEntry.EntryType.COMMISSION
                 )
 

@@ -33,7 +33,7 @@ class ProductViewSet(viewsets.ModelViewSet):
 
         # Isolate by Role
         if not user.is_authenticated:
-            queryset = Product.objects.filter(is_active=True)
+            queryset = Product.objects.filter(is_active=True, store__is_active=True)
         elif user.role in ['ADMIN', 'SUPERUSER'] or user.is_superuser:
             pass # See all
         elif user.role == 'SELLER':
@@ -41,7 +41,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY'] and user.employed_store:
             queryset = queryset.filter(store=user.employed_store)
         else:
-            queryset = Product.objects.filter(is_active=True)
+            queryset = Product.objects.filter(is_active=True, store__is_active=True)
             
         store_id = self.request.query_params.get('store', None)
         category_id = self.request.query_params.get('category', None)

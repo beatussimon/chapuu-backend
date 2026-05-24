@@ -11,12 +11,22 @@ class Store(models.Model):
     name = models.CharField(max_length=255)
     store_type = models.CharField(max_length=20, choices=StoreType.choices, default=StoreType.RESTAURANT)
     location = models.TextField()
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True,
+        help_text="Auto-set via Get Location button")
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True,
+        help_text="Auto-set via Get Location button")
+    directions = models.TextField(blank=True, null=True,
+        help_text="Local landmark details or delivery directions provided by the seller")
+    requires_table_for_dine_in = models.BooleanField(default=True,
+        help_text="If True, table selection is mandatory for dine-in orders.")
     contact_phone = models.CharField(max_length=50, blank=True, null=True)
     contact_email = models.EmailField(blank=True, null=True)
     image = models.ImageField(upload_to='stores/', null=True, blank=True)
     is_active = models.BooleanField(default=True)
     is_open = models.BooleanField(default=True, help_text="Store open/closed status toggle.")
     base_delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
+    free_trial_start = models.DateTimeField(null=True, blank=True, help_text="Start date-time of promotional free trial")
+    free_trial_end = models.DateTimeField(null=True, blank=True, help_text="End date-time of promotional free trial")
     created_at = models.DateTimeField(auto_now_add=True)
 
     def save(self, *args, **kwargs):

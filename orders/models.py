@@ -34,6 +34,12 @@ class Order(models.Model):
     
     customer_phone = models.CharField(max_length=50, blank=True, null=True)
     delivery_location = models.TextField(blank=True, null=True)
+    delivery_latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True,
+        help_text="Customer's GPS latitude captured at checkout")
+    delivery_longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True,
+        help_text="Customer's GPS longitude captured at checkout")
+    delivery_directions = models.TextField(blank=True, null=True,
+        help_text="Specific landmarks or detailed directions for delivery rider")
 
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
     delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0.0, help_text="Delivery or pickup fee set by seller/accountant.")
