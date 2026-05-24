@@ -113,6 +113,8 @@ class StoreSerializer(serializers.ModelSerializer):
     gallery_images = StoreGalleryImageSerializer(many=True, read_only=True)
     image_url = serializers.SerializerMethodField()
     distance_km = serializers.SerializerMethodField()
+    review_count = serializers.SerializerMethodField()
+    avg_rating = serializers.SerializerMethodField()
     
     class Meta:
         model = Store
@@ -120,7 +122,7 @@ class StoreSerializer(serializers.ModelSerializer):
             'id', 'owner', 'name', 'store_type', 'location', 'latitude', 'longitude', 'directions', 'requires_table_for_dine_in', 'contact_phone', 
             'contact_email', 'image', 'image_url', 'is_active', 'is_open', 'working_hours', 
             'base_delivery_fee', 'created_at', 'free_trial_start', 'free_trial_end', 'kitchen_settings', 'payment_methods',
-            'gallery_images', 'distance_km'
+            'gallery_images', 'distance_km', 'review_count', 'avg_rating'
         ]
 
     def get_image_url(self, obj):
@@ -133,6 +135,16 @@ class StoreSerializer(serializers.ModelSerializer):
 
     def get_distance_km(self, obj):
         return getattr(obj, 'distance_km', None)
+
+    def get_review_count(self, obj):
+        return obj.reviews.count()
+
+    def get_avg_rating(self, obj):
+        from django.db.models import Avg
+        avg = obj.reviews.aggregate(Avg('rating'))['rating__avg']
+        if avg is not None:
+            return round(avg, 1)
+        return None
 
     def validate(self, attrs):
         request = self.context.get('request')

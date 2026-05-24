@@ -325,8 +325,52 @@ class StoreViewSet(viewsets.ModelViewSet):
     def reviews(self, request, pk=None):
         store = self.get_object()
         reviews = StoreReview.objects.filter(store=store).order_by('-created_at')
+        
+        # Calculate rating stats on database level (highly efficient)
+        from django.db.models import Avg, Count
+        stats = reviews.aggregate(
+            avg_rating=Avg('rating'),
+            total=Count('id')
+        )
+        avg_rating = round(stats['avg_rating'], 1) if stats['avg_rating'] is not None else None
+        total_reviews = stats['total']
+        
+        # Calculate star counts
+        star_counts = {5: 0, 4: 0, 3: 0, 2: 0, 1: 0}
+        counts_query = reviews.values('rating').annotate(count=Count('id'))
+        for item in counts_query:
+            r = item['rating']
+            if 1 <= r <= 5:
+                star_counts[r] = item['count']
+
+        from rest_framework.pagination import PageNumberPagination
+        class StoreReviewPagination(PageNumberPagination):
+            page_size = 5
+            page_size_query_param = 'page_size'
+            max_page_size = 50
+
+        paginator = StoreReviewPagination()
+        page = paginator.paginate_queryset(reviews, request)
+        if page is not None:
+            serializer = StoreReviewSerializer(page, many=True)
+            return Response({
+                'count': paginator.page.paginator.count,
+                'next': paginator.get_next_link(),
+                'previous': paginator.get_previous_link(),
+                'results': serializer.data,
+                'avg_rating': avg_rating,
+                'star_counts': star_counts
+            })
+
         serializer = StoreReviewSerializer(reviews, many=True)
-        return Response(serializer.data)
+        return Response({
+            'count': total_reviews,
+            'next': None,
+            'previous': None,
+            'results': serializer.data,
+            'avg_rating': avg_rating,
+            'star_counts': star_counts
+        })
 
 class SystemSupportConfigViewSet(viewsets.ViewSet):
     permission_classes = [permissions.AllowAny]
