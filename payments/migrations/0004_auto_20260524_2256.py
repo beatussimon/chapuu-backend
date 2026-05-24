@@ -5,7 +5,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('payments', '0003_refund'),
+        ('payments', '0003_remove_payment_provider_receipt_url_and_more'),
     ]
 
     operations = [
