@@ -133,55 +133,68 @@ class OrderSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         items_data = validated_data.pop('items')
         
-        # Stock validation & Price snapshotting
+        # Sort items_data by product ID to prevent deadlocks from concurrent different-ordered checkouts
+        items_data = sorted(items_data, key=lambda x: x['product'].id)
+        
         from catalog.models import InventoryStock
         from datetime import timedelta
+        from django.db import transaction
         
-        processed_items = []
-        total = 0
-        for item_data in items_data:
-            product = item_data['product']
-            quantity = item_data['quantity']
-            if product.requires_inventory:
-                try:
-                    stock = InventoryStock.objects.get(product=product)
-                    if stock.quantity < quantity:
-                        raise serializers.ValidationError(f"Only {stock.quantity} available for {product.name}.")
-                except InventoryStock.DoesNotExist:
-                    raise serializers.ValidationError(f"Product {product.name} is out of stock.")
+        with transaction.atomic():
+            processed_items = []
+            total = 0
+            for item_data in items_data:
+                product = item_data['product']
+                quantity = item_data['quantity']
+                
+                # Check and deduct direct stock atomically with row lock
+                if product.requires_inventory:
+                    try:
+                        stock = InventoryStock.objects.select_for_update().get(product=product)
+                        if stock.quantity < quantity:
+                            raise serializers.ValidationError(f"Only {stock.quantity} available for {product.name}.")
+                        stock.quantity -= quantity
+                        stock.save(update_fields=['quantity'])
+                    except InventoryStock.DoesNotExist:
+                        raise serializers.ValidationError(f"Product {product.name} is out of stock.")
+                
+                # Check and deduct recipe ingredients atomically with row locks
+                if product.requires_kitchen:
+                    for recipe_item in product.recipe_ingredients.select_related('ingredient').all():
+                        ingredient = recipe_item.ingredient
+                        try:
+                            stock = InventoryStock.objects.select_for_update().get(ingredient=ingredient)
+                            required_qty = recipe_item.quantity_required * quantity
+                            if stock.quantity < required_qty:
+                                raise serializers.ValidationError(f"Insufficient ingredients for {product.name}.")
+                            stock.quantity -= required_qty
+                            stock.save(update_fields=['quantity'])
+                        except InventoryStock.DoesNotExist:
+                            raise serializers.ValidationError(f"Ingredient {ingredient.name} is out of stock.")
+                
+                # Query db product directly to bypass any user-submitted unit_price values
+                catalog_price = product.price
+                item_data['unit_price'] = catalog_price
+                total += catalog_price * quantity
+                processed_items.append(item_data)
             
-            # Query db product directly to bypass any user-submitted unit_price values
-            catalog_price = product.price
-            item_data['unit_price'] = catalog_price
-            total += catalog_price * quantity
-            processed_items.append(item_data)
-        
-        # Set calculated scheduled_start_time dynamically using historical averages
-        scheduled_time = validated_data.get('scheduled_time')
-        prep_option = validated_data.get('prep_time_option', 'DYNAMIC')
-        if scheduled_time:
-            if prep_option == 'DYNAMIC':
-                max_prep = max((i['product'].get_average_prep_time() for i in processed_items), default=0)
-                validated_data['scheduled_start_time'] = scheduled_time - timedelta(minutes=max_prep)
-            else:
-                # For CUSTOM option, use submitted scheduled_start_time (already validated)
-                pass
-
-        order = Order.objects.create(total_amount=total, **validated_data)
-        
-        for item_data in processed_items:
-            OrderItem.objects.create(order=order, **item_data)
-            # Deduct stock immediately on order creation
-            product = item_data['product']
-            if product.requires_inventory:
-                try:
-                    stock = InventoryStock.objects.get(product=product)
-                    stock.quantity -= item_data['quantity']
-                    stock.save()
-                except InventoryStock.DoesNotExist:
+            # Set calculated scheduled_start_time dynamically using historical averages
+            scheduled_time = validated_data.get('scheduled_time')
+            prep_option = validated_data.get('prep_time_option', 'DYNAMIC')
+            if scheduled_time:
+                if prep_option == 'DYNAMIC':
+                    max_prep = max((i['product'].get_average_prep_time() for i in processed_items), default=0)
+                    validated_data['scheduled_start_time'] = scheduled_time - timedelta(minutes=max_prep)
+                else:
+                    # For CUSTOM option, use submitted scheduled_start_time (already validated)
                     pass
-        
-        return order
+
+            order = Order.objects.create(total_amount=total, **validated_data)
+            
+            for item_data in processed_items:
+                OrderItem.objects.create(order=order, **item_data)
+            
+            return order
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)

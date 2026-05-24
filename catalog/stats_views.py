@@ -39,7 +39,9 @@ class BillboardStatsViewSet(viewsets.ViewSet):
                 top_stores = scored_stores[:4]
                 
                 # Fetch products and score them
-                products = list(Product.objects.select_related('store').filter(is_active=True, store__is_active=True))
+                products = list(Product.objects.select_related('store', 'stock').prefetch_related('recipe_ingredients__ingredient__stock').filter(is_active=True, store__is_active=True))
+                # Exclude out-of-stock items
+                products = [p for p in products if p.check_stock_available(1)[0]]
                 # Add distance_km map
                 store_dist_map = {s.id: getattr(s, 'distance_km', None) for s in stores}
                 for p in products:
@@ -67,6 +69,7 @@ class BillboardStatsViewSet(viewsets.ViewSet):
                     trending_products_data.append({
                         'id': prod.id,
                         'name': prod.name,
+                        'store_id': prod.store.id,
                         'store_name': prod.store.name,
                         'price': str(prod.price),
                         'times_ordered': total_ordered,
@@ -103,18 +106,26 @@ class BillboardStatsViewSet(viewsets.ViewSet):
             })
         
         # 3. Trending Items (by order item count in completed orders)
-        trending_products = Product.objects.select_related('store').filter(
+        trending_products_raw = Product.objects.select_related('store', 'stock').prefetch_related('recipe_ingredients__ingredient__stock').filter(
             is_active=True,
             store__is_active=True
         ).annotate(
             times_ordered=Sum('order_items__quantity', filter=models.Q(order_items__order__state=Order.State.COMPLETED))
-        ).order_by('-times_ordered')[:4]
+        ).order_by('-times_ordered')
+
+        trending_products = []
+        for prod in trending_products_raw:
+            if prod.check_stock_available(1)[0]:
+                trending_products.append(prod)
+                if len(trending_products) >= 4:
+                    break
 
         trending_products_data = []
         for prod in trending_products:
             trending_products_data.append({
                 'id': prod.id,
                 'name': prod.name,
+                'store_id': prod.store.id,
                 'store_name': prod.store.name,
                 'price': str(prod.price),
                 'times_ordered': prod.times_ordered or 0,

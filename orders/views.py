@@ -88,8 +88,10 @@ class OrderViewSet(viewsets.ModelViewSet):
             )
             order = OrderStateMachine.transition_order(order, Order.State.PAID, notes="Walk-in order — instant payment.", performed_by=user)
             
-            # Route based on store type
-            if order.store.store_type == 'SHOP':
+            # Route based on store type or auto-ready skip
+            if order.state == Order.State.READY:
+                pass
+            elif order.store.store_type == 'SHOP':
                 order = OrderStateMachine.transition_order(order, Order.State.READY, notes="Shop walk-in — instant ready.", performed_by=user)
             else:
                 KitchenEngine.enqueue_order(order)
@@ -418,7 +420,9 @@ class OrderViewSet(viewsets.ModelViewSet):
                     updated_order.reservation.save(update_fields=['status'])
 
             if new_state in [Order.State.PAID, Order.State.QUEUED]:
-                if updated_order.store.store_type == 'SHOP':
+                if updated_order.state == Order.State.READY:
+                    pass
+                elif updated_order.store.store_type == 'SHOP':
                     if updated_order.state == Order.State.PAID:
                         updated_order = OrderStateMachine.transition_order(updated_order, Order.State.READY, notes="Shop kitchen skip.", performed_by=user)
                 else:

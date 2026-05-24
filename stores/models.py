@@ -24,6 +24,7 @@ class Store(models.Model):
     image = models.ImageField(upload_to='stores/', null=True, blank=True)
     is_active = models.BooleanField(default=True)
     is_open = models.BooleanField(default=True, help_text="Store open/closed status toggle.")
+    working_hours = models.CharField(max_length=255, default="08:00 AM - 10:00 PM", help_text="e.g. 08:00 AM - 10:00 PM")
     base_delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
     free_trial_start = models.DateTimeField(null=True, blank=True, help_text="Start date-time of promotional free trial")
     free_trial_end = models.DateTimeField(null=True, blank=True, help_text="End date-time of promotional free trial")

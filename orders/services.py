@@ -57,6 +57,22 @@ class OrderStateMachine:
             previous_state = locked_order.state
             locked_order.state = new_state
             
+            if new_state == Order.State.PAID:
+                if locked_order.customer:
+                    from django.db.models import F
+                    locked_order.customer.__class__.objects.filter(pk=locked_order.customer_id).update(
+                        loyalty_points=F('loyalty_points') + int(locked_order.total_amount)
+                    )
+                
+                # Auto-ready items that do not require kitchen preparation
+                locked_order.items.filter(product__requires_kitchen=False).update(is_ready=True)
+                
+                # If there are no items requiring kitchen prep, transition state directly to READY
+                has_kitchen_items = locked_order.items.filter(product__requires_kitchen=True).exists()
+                if not has_kitchen_items:
+                    locked_order.state = Order.State.READY
+                    new_state = Order.State.READY
+
             update_fields = ['state', 'updated_at']
 
             # Generate handoff code when entering delivery/ready states for target modes
@@ -75,12 +91,28 @@ class OrderStateMachine:
 
             locked_order.save(update_fields=update_fields)
 
-            if new_state == Order.State.PAID:
-                if locked_order.customer:
-                    from django.db.models import F
-                    locked_order.customer.__class__.objects.filter(pk=locked_order.customer_id).update(
-                        loyalty_points=F('loyalty_points') + int(locked_order.total_amount)
-                    )
+            if new_state in [Order.State.CANCELLED, Order.State.EXPIRED, Order.State.REFUNDED] and previous_state not in [Order.State.CANCELLED, Order.State.EXPIRED, Order.State.REFUNDED]:
+                # Restores locked stock levels dynamically
+                from catalog.models import InventoryStock
+                for item in locked_order.items.select_related('product').all():
+                    product = item.product
+                    if product.requires_inventory:
+                        try:
+                            stock = InventoryStock.objects.select_for_update().get(product=product)
+                            stock.quantity += item.quantity
+                            stock.save(update_fields=['quantity'])
+                        except InventoryStock.DoesNotExist:
+                            pass
+                    if product.requires_kitchen:
+                        for recipe_item in product.recipe_ingredients.select_related('ingredient').all():
+                            try:
+                                stock = InventoryStock.objects.select_for_update().get(ingredient=recipe_item.ingredient)
+                                stock.quantity += recipe_item.quantity_required * item.quantity
+                                stock.save(update_fields=['quantity'])
+                            except InventoryStock.DoesNotExist:
+                                pass
+
+
 
             # Accrue 3% platform commission on order completion (Waived to 0.00 during Free Trial)
             if new_state == Order.State.COMPLETED:

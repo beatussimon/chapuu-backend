@@ -179,21 +179,21 @@ class PlatformAnalyticsViewSet(viewsets.ViewSet):
         # Auto insights for platform growth/security
         insights = []
         if locked_orders_count > 0:
-            insights.append(f"⚠️ There are currently {locked_orders_count} locked suspicious orders requiring dispute resolution.")
+            insights.append(f"There are currently {locked_orders_count} locked suspicious orders requiring dispute resolution.")
         if suspicious_orders_count > 0:
-            insights.append(f"🔒 A total of {suspicious_orders_count} orders have been flagged as suspicious across the system.")
+            insights.append(f"A total of {suspicious_orders_count} orders have been flagged as suspicious across the system.")
         if store_leaderboard:
-            insights.append(f"🏆 Top merchant \"{store_leaderboard[0]['store_name']}\" leads with {store_leaderboard[0]['order_count']} completed transactions.")
+            insights.append(f"Top merchant \"{store_leaderboard[0]['store_name']}\" leads with {store_leaderboard[0]['order_count']} completed transactions.")
         if float(gpv) > 0.0:
             avg_comm = (float(platform_commission) / float(gpv)) * 100
-            insights.append(f"📈 Platform is operating at an average commission rate of {round(avg_comm, 2)}%.")
+            insights.append(f"Platform is operating at an average commission rate of {round(avg_comm, 2)}%.")
         
         if len(distances) > 0:
-            insights.append(f"🛵 The average delivery distance is {round(avg_distance, 2)} km across the platform.")
+            insights.append(f"The average delivery distance is {round(avg_distance, 2)} km across the platform.")
             if hyperlocal_count > max(medium_count, long_count):
-                insights.append("📍 Hyper-local deliveries (<=0.5km) dominate, indicating high community concentration around merchants.")
+                insights.append("Hyper-local deliveries (<=0.5km) dominate, indicating high community concentration around merchants.")
             elif long_count > 0:
-                insights.append(f"🌍 Long-range deliveries (>2km) comprise {round(long_count / len(distances) * 100, 1)}% of orders.")
+                insights.append(f"Long-range deliveries (>2km) comprise {round(long_count / len(distances) * 100, 1)}% of orders.")
 
         return Response({
             'kpi': kpi,

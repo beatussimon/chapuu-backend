@@ -94,6 +94,31 @@ class Product(models.Model):
                 fallback = 15  # Default fallback duration
         return fallback
 
+    def check_stock_available(self, quantity=1):
+        """
+        Checks if the requested quantity is available in stock.
+        Handles direct packaged stock (requires_inventory) and recipe ingredients (requires_kitchen).
+        Returns a tuple: (is_available, error_message, available_qty)
+        """
+        if self.requires_inventory:
+            if not hasattr(self, 'stock') or self.stock is None:
+                return False, f"Product {self.name} is out of stock.", 0
+            if self.stock.quantity < quantity:
+                return False, f"Only {self.stock.quantity} available for {self.name}.", self.stock.quantity
+            
+        if self.requires_kitchen:
+            for recipe_item in self.recipe_ingredients.select_related('ingredient__stock').all():
+                if not hasattr(recipe_item.ingredient, 'stock') or recipe_item.ingredient.stock is None:
+                    return False, f"Ingredient {recipe_item.ingredient.name} is out of stock.", 0
+                
+                required_qty = recipe_item.quantity_required * quantity
+                available = recipe_item.ingredient.stock.quantity
+                if available < required_qty:
+                    max_possible = int(available / recipe_item.quantity_required)
+                    return False, f"Insufficient ingredients for {self.name}.", max_possible
+                        
+        return True, "", None
+
     def __str__(self):
         return self.name
 

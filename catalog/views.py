@@ -2,7 +2,7 @@ from rest_framework import viewsets, permissions, status
 from django.db.models import Q
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from catalog.models import Product, Category, InventoryStock, Ingredient, RecipeIngredient
+from catalog.models import Product, Category, InventoryStock, Ingredient, RecipeIngredient, StockAdjustmentLog
 from catalog.serializers import ProductSerializer, CategorySerializer, InventoryStockSerializer, IngredientSerializer, RecipeIngredientSerializer
 from decimal import Decimal, InvalidOperation
 
@@ -33,7 +33,10 @@ class ProductViewSet(viewsets.ModelViewSet):
 
         # Isolate by Role
         if not user.is_authenticated:
-            queryset = Product.objects.filter(is_active=True, store__is_active=True)
+            queryset = Product.objects.filter(is_active=True, store__is_active=True).exclude(
+                Q(requires_inventory=True, requires_kitchen=False) &
+                (Q(stock__isnull=True) | Q(stock__quantity__lte=0))
+            )
         elif user.role in ['ADMIN', 'SUPERUSER'] or user.is_superuser:
             pass # See all
         elif user.role == 'SELLER':
@@ -41,7 +44,10 @@ class ProductViewSet(viewsets.ModelViewSet):
         elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY'] and user.employed_store:
             queryset = queryset.filter(store=user.employed_store)
         else:
-            queryset = Product.objects.filter(is_active=True, store__is_active=True)
+            queryset = Product.objects.filter(is_active=True, store__is_active=True).exclude(
+                Q(requires_inventory=True, requires_kitchen=False) &
+                (Q(stock__isnull=True) | Q(stock__quantity__lte=0))
+            )
             
         store_id = self.request.query_params.get('store', None)
         category_id = self.request.query_params.get('category', None)

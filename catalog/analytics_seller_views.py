@@ -178,10 +178,10 @@ class SellerAnalyticsViewSet(viewsets.ViewSet):
             insights.append(f"{top_mode['fulfillment_mode'].replace('_', ' ').title()} makes up {pct}% of your completed orders.")
 
         if kpi['completion_rate'] < 80 and total_orders > 5:
-            insights.append(f"⚠️ Your completion rate is {kpi['completion_rate']}%. Consider investigating why {cancelled_orders} orders were cancelled.")
+            insights.append(f"Your completion rate is {kpi['completion_rate']}%. Consider investigating why {cancelled_orders} orders were cancelled.")
 
         if top_products:
-            insights.append(f"🏆 Your top seller is \"{top_products[0]['product_name']}\" with {top_products[0]['total_sold']} units sold.")
+            insights.append(f"Your top seller is \"{top_products[0]['product_name']}\" with {top_products[0]['total_sold']} units sold.")
 
         return Response({
             'kpi': kpi,

@@ -65,6 +65,8 @@ class POSFlowTest(TestCase):
         """
         self.store.store_type = 'RESTAURANT'
         self.store.save()
+        self.product.requires_kitchen = True
+        self.product.save()
         
         url = reverse('order-list')
         payload = {
@@ -101,6 +103,8 @@ class POSFlowTest(TestCase):
         # Ensure it's a RESTAURANT so it doesn't auto-advance to READY from PAID
         self.store.store_type = 'RESTAURANT'
         self.store.save()
+        self.product.requires_kitchen = True
+        self.product.save()
 
         # Create a customer user
         customer = User.objects.create_user(username='customer', password='password123', role='CUSTOMER')
@@ -112,6 +116,7 @@ class POSFlowTest(TestCase):
             total_amount=10.0,
             state=Order.State.AWAITING_PAYMENT
         )
+        order.items.create(product=self.product, quantity=1, unit_price=10.0)
         
         advance_url = reverse('order-advance-state', kwargs={'pk': order.id})
         
@@ -436,3 +441,95 @@ class FreeTrialCommissionTest(TestCase):
         entry = CommissionLedgerEntry.objects.filter(order=order).first()
         self.assertIsNotNone(entry)
         self.assertEqual(float(entry.commission_amount), 0.60)
+
+class KitchenSkipAndMixedOrdersTest(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.seller = User.objects.create_user(
+            username='kitchen_seller', password='password123', role='SELLER'
+        )
+        self.store = Store.objects.create(
+            name='Gourmet Burger Kitchen',
+            owner=self.seller,
+            store_type='RESTAURANT'
+        )
+        self.burger = Product.objects.create(
+            name='Double Cheese Burger',
+            price=15.00,
+            store=self.store,
+            requires_kitchen=True
+        )
+        self.soda = Product.objects.create(
+            name='Canned Coca-Cola',
+            price=2.50,
+            store=self.store,
+            requires_kitchen=False
+        )
+        self.client.force_authenticate(user=self.seller)
+
+    def test_direct_only_order_skips_kitchen_prep(self):
+        """
+        Verify that an order containing only packaged/direct items skips kitchen
+        prep and automatically transitions to READY upon payment.
+        """
+        from orders.services import OrderStateMachine
+        
+        order = Order.objects.create(
+            store=self.store,
+            total_amount=2.50,
+            state=Order.State.CREATED
+        )
+        order.items.create(product=self.soda, quantity=1, unit_price=2.50)
+        
+        # Transition to PAID
+        updated_order = OrderStateMachine.transition_order(order, Order.State.PAID)
+        
+        # Verify order has automatically transitioned to READY
+        self.assertEqual(updated_order.state, Order.State.READY)
+        self.assertTrue(updated_order.items.filter(product=self.soda).first().is_ready)
+
+    def test_mixed_order_handles_auto_ready_and_reactive_transition(self):
+        """
+        Verify that in a mixed order (burger + soda):
+        1. The soda is automatically marked ready on payment.
+        2. The burger is NOT marked ready.
+        3. The order does not automatically skip to READY.
+        4. Marking the burger ready reactive-triggers the entire order to become READY.
+        """
+        from orders.services import OrderStateMachine
+        
+        order = Order.objects.create(
+            store=self.store,
+            total_amount=17.50,
+            state=Order.State.CREATED
+        )
+        burger_item = order.items.create(product=self.burger, quantity=1, unit_price=15.00)
+        soda_item = order.items.create(product=self.soda, quantity=1, unit_price=2.50)
+        
+        # Transition to PAID
+        updated_order = OrderStateMachine.transition_order(order, Order.State.PAID)
+        
+        # Soda should be auto-marked ready, burger should remain pending prep
+        soda_item.refresh_from_db()
+        burger_item.refresh_from_db()
+        self.assertTrue(soda_item.is_ready)
+        self.assertFalse(burger_item.is_ready)
+        
+        # Order should NOT be READY yet because burger is cooking
+        self.assertEqual(updated_order.state, Order.State.PAID)
+        
+        # Move order manually to QUEUED and PREPARING (simulating kitchen dashboard)
+        updated_order = OrderStateMachine.transition_order(updated_order, Order.State.QUEUED)
+        updated_order = OrderStateMachine.transition_order(updated_order, Order.State.PREPARING)
+        self.assertEqual(updated_order.state, Order.State.PREPARING)
+        
+        # Mark the burger as ready (simulating chef action) via API client or direct method call
+        res = self.client.post(
+            reverse('order-mark-item-ready', kwargs={'pk': updated_order.id, 'item_id': burger_item.id})
+        )
+        self.assertEqual(res.status_code, 200)
+        
+        # Refresh and verify order is now READY because all items are finished
+        updated_order.refresh_from_db()
+        self.assertEqual(updated_order.state, Order.State.READY)
+

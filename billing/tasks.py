@@ -26,10 +26,11 @@ def trigger_scheduled_orders():
     )
     for order in due_orders:
         try:
-            if order.store.store_type == 'SHOP':
-                # Shops don't have preparation queues, transition directly to READY
-                OrderStateMachine.transition_order(order, Order.State.READY, notes="Scheduled order start time reached (Shop auto-ready).")
-                logger.info(f"Scheduled shop order #{order.id} transitioned to READY.")
+            has_kitchen_items = order.items.filter(product__requires_kitchen=True).exists()
+            if order.store.store_type == 'SHOP' or not has_kitchen_items:
+                # Shops and zero-prep orders don't have preparation queues, transition directly to READY
+                OrderStateMachine.transition_order(order, Order.State.READY, notes="Scheduled order start time reached (Auto-ready).")
+                logger.info(f"Scheduled order #{order.id} transitioned to READY.")
             else:
                 # Restaurants enqueue in KitchenEngine
                 from stores.services import KitchenEngine

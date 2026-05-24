@@ -35,7 +35,10 @@ class UniversalSearchView(APIView):
         # Only search active stores
         stores_qs = Store.objects.filter(is_active=True).prefetch_related('payment_methods', 'kitchen_settings')
         # Only search active products from active stores
-        products_qs = Product.objects.filter(is_active=True, store__is_active=True).select_related('store', 'category')
+        products_qs = Product.objects.filter(is_active=True, store__is_active=True).select_related('store', 'category').exclude(
+            Q(requires_inventory=True, requires_kitchen=False) &
+            (Q(stock__isnull=True) | Q(stock__quantity__lte=0))
+        )
         categories_qs = Category.objects.all()
 
         # 2. Text Search Filtering

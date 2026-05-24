@@ -118,7 +118,7 @@ class StoreSerializer(serializers.ModelSerializer):
         model = Store
         fields = [
             'id', 'owner', 'name', 'store_type', 'location', 'latitude', 'longitude', 'directions', 'requires_table_for_dine_in', 'contact_phone', 
-            'contact_email', 'image', 'image_url', 'is_active', 'is_open', 
+            'contact_email', 'image', 'image_url', 'is_active', 'is_open', 'working_hours', 
             'base_delivery_fee', 'created_at', 'free_trial_start', 'free_trial_end', 'kitchen_settings', 'payment_methods',
             'gallery_images', 'distance_km'
         ]
