@@ -74,6 +74,7 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: "postgres://${DB_USER}:${DB_PASSWORD}@db:${DB_PORT:-5432}/${DB_NAME}"
+    command: ["uvicorn", "config.asgi:application", "--host", "0.0.0.0", "--port", "8000", "--workers", "4", "--timeout-keep-alive", "30", "--access-log"]
     volumes:
       - media_files:/app/media
       - static_files:/app/staticfiles
