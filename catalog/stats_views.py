@@ -10,6 +10,8 @@ from django.contrib.auth import get_user_model
 
 User = get_user_model()
 
+from django.core.cache import cache
+
 class BillboardStatsViewSet(viewsets.ViewSet):
     """
     Publicly accessible endpoint for the Landing Page to display dynamic analytics.
@@ -17,6 +19,17 @@ class BillboardStatsViewSet(viewsets.ViewSet):
     permission_classes = [permissions.AllowAny]
 
     def list(self, request):
+        lat = request.query_params.get('lat')
+        lng = request.query_params.get('lng')
+
+        # Only cache global stats (no lat/lng) to prevent cache explosion
+        # Personalized/Location-based stats remain dynamic for accuracy
+        if not lat or not lng:
+            cache_key = "billboard_stats_global"
+            cached_data = cache.get(cache_key)
+            if cached_data:
+                return Response(cached_data)
+
         # 1. Total Metrics
         total_stores = Store.objects.filter(is_active=True).count()
         total_meals = Order.objects.filter(state=Order.State.COMPLETED, store__is_active=True).count()
@@ -134,11 +147,17 @@ class BillboardStatsViewSet(viewsets.ViewSet):
                 'image_url': request.build_absolute_uri(prod.image.url) if prod.image else None
             })
 
-        return Response({
+        response_data = {
             'metrics': {
                 'total_stores': total_stores,
                 'total_meals_served': total_meals,
             },
             'top_stores': top_stores_data,
             'trending_items': trending_products_data
-        })
+        }
+
+        if not lat or not lng:
+            cache.set("billboard_stats_global", response_data, 60*60) # Cache for 1 hour
+
+        return Response(response_data)
+

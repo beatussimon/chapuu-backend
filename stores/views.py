@@ -177,6 +177,8 @@ class AdvertisementViewSet(viewsets.ModelViewSet):
             
         return queryset
 
+from django.core.cache import cache
+
 class StoreViewSet(viewsets.ModelViewSet):
     queryset = Store.objects.all().prefetch_related('payment_methods', 'kitchen_settings')
     serializer_class = StoreSerializer
@@ -189,6 +191,14 @@ class StoreViewSet(viewsets.ModelViewSet):
         return Store.objects.filter(is_active=True).prefetch_related('payment_methods', 'kitchen_settings')
     
     def list(self, request, *args, **kwargs):
+        # Intelligent Caching for the main store list (no filters/params)
+        # This drastically reduces DB load for the 'Browse' page
+        if not request.query_params:
+            cache_key = "all_stores_list"
+            cached_data = cache.get(cache_key)
+            if cached_data:
+                return Response(cached_data)
+
         queryset = self.filter_queryset(self.get_queryset())
         
         # Apply search filter
@@ -232,7 +242,12 @@ class StoreViewSet(viewsets.ModelViewSet):
             return self.get_paginated_response(serializer.data)
 
         serializer = self.get_serializer(queryset, many=True)
+        
+        if not request.query_params:
+            cache.set("all_stores_list", serializer.data, 60*60) # Cache for 1 hour
+            
         return Response(serializer.data)
+
     
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)

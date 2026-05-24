@@ -7,3 +7,6 @@ except ImportError:
 from .celery import app as celery_app
 
 __all__ = ('celery_app',)
+
+# Standard Django pattern for registering signals in a project-level module
+default_app_config = 'config.apps.Config'

@@ -5,3 +5,20 @@ http:
         average: 100
         burst: 50
         period: 1m
+    
+    # Compression middleware to speed up JSON and JS delivery
+    gzip-compress:
+      compress: {}
+
+  routers:
+    # We apply compression to all websecure traffic
+    api-router:
+      rule: "Host(`api.pasifiq.store`)"
+      service: backend
+      entryPoints:
+        - websecure
+      middlewares:
+        - api-rate-limit
+        - gzip-compress
+      tls:
+        certResolver: letsencrypt
