@@ -2,6 +2,7 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 from rest_framework import status
+from unittest.mock import patch
 from users.models import User
 from stores.models import Store
 from catalog.models import Product
@@ -626,5 +627,63 @@ class DeliveryFeeNegotiationTest(TestCase):
         entry = CommissionLedgerEntry.objects.filter(order=order).first()
         self.assertIsNotNone(entry)
         self.assertEqual(float(entry.commission_amount), 3.60)
+
+
+class ReverseGeocodeProxyTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(
+            username='geo_user', password='password123', role='CUSTOMER'
+        )
+        self.client.force_authenticate(user=self.user)
+
+    @patch('requests.get')
+    def test_reverse_geocode_success(self, mock_get):
+        # Mock success response
+        class MockResponse:
+            status_code = 200
+            def json(self):
+                return {"display_name": "Tegeta, Dar es Salaam, Tanzania"}
+        mock_get.return_value = MockResponse()
+
+        url = reverse('order-reverse-geocode')
+        response = self.client.get(url, {'lat': '-6.827', 'lon': '39.2675'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['display_name'], "Tegeta, Dar es Salaam, Tanzania")
+        mock_get.assert_called_once_with(
+            "https://nominatim.openstreetmap.org/reverse?lat=-6.827&lon=39.2675&format=json",
+            headers={'User-Agent': 'Chapuu-Backend-Reverse-Geocoding-Proxy/1.0 (contact: support@chapuu.com)'},
+            timeout=5
+        )
+
+    @patch('requests.get')
+    def test_reverse_geocode_service_failure(self, mock_get):
+        # Mock failure (non-200) response
+        class MockResponse:
+            status_code = 500
+        mock_get.return_value = MockResponse()
+
+        url = reverse('order-reverse-geocode')
+        response = self.client.get(url, {'lat': '-6.827', 'lon': '39.2675'})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", response.data)
+
+    @patch('requests.get')
+    def test_reverse_geocode_exception(self, mock_get):
+        # Mock connection timeout/exception
+        import requests
+        mock_get.side_effect = requests.exceptions.Timeout("Connection timed out")
+
+        url = reverse('order-reverse-geocode')
+        response = self.client.get(url, {'lat': '-6.827', 'lon': '39.2675'})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("error", response.data)
+        self.assertIn("Geocoding request failed", response.data['error'])
+
+    def test_reverse_geocode_missing_parameters(self):
+        url = reverse('order-reverse-geocode')
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
 
 

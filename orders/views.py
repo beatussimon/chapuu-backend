@@ -380,6 +380,31 @@ class OrderViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
+    @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
+    def reverse_geocode(self, request):
+        lat = request.query_params.get('lat')
+        lon = request.query_params.get('lon')
+        if not lat or not lon:
+            return Response({"error": "lat and lon are required parameters"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        import requests
+        try:
+            headers = {
+                'User-Agent': 'Chapuu-Backend-Reverse-Geocoding-Proxy/1.0 (contact: support@chapuu.com)'
+            }
+            response = requests.get(
+                f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json",
+                headers=headers,
+                timeout=5
+            )
+            if response.status_code == 200:
+                data = response.json()
+                if 'display_name' in data:
+                    return Response({"display_name": data['display_name']})
+            return Response({"error": "Failed to resolve address from geocoding service"}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({"error": f"Geocoding request failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def renegotiate_delivery_fee(self, request, pk=None):
         order = self.get_object()
