@@ -34,21 +34,26 @@ class OrderSerializer(serializers.ModelSerializer):
     review_details = serializers.SerializerMethodField()
     store_name = serializers.CharField(source='store.name', read_only=True)
     store_phone = serializers.CharField(source='store.contact_phone', read_only=True)
+    store_latitude = serializers.DecimalField(source='store.latitude', read_only=True, max_digits=9, decimal_places=6)
+    store_longitude = serializers.DecimalField(source='store.longitude', read_only=True, max_digits=9, decimal_places=6)
+    store_location = serializers.CharField(source='store.location', read_only=True)
+    store_directions = serializers.CharField(source='store.directions', read_only=True)
     reschedule_requests = OrderRescheduleRequestSerializer(many=True, read_only=True)
 
     class Meta:
         model = Order
         fields = [
-            'id', 'store', 'store_name', 'store_phone', 'customer', 'customer_name', 'table', 'table_number', 'reservation', 'reservation_time', 'reservation_status', 'reservation_guest_count', 'state', 
-            'fulfillment_mode', 'customer_phone', 'delivery_location', 'delivery_latitude', 'delivery_longitude', 'delivery_directions', 'total_amount', 'delivery_fee', 'created_at', 
+            'id', 'store', 'store_name', 'store_phone', 'store_latitude', 'store_longitude', 'store_location', 'store_directions', 'customer', 'customer_name', 'table', 'table_number', 'reservation', 'reservation_time', 'reservation_status', 'reservation_guest_count', 'state', 
+            'fulfillment_mode', 'customer_phone', 'delivery_location', 'delivery_latitude', 'delivery_longitude', 'delivery_directions', 'total_amount', 'delivery_fee', 'delivery_fee_status', 'created_at', 
             'updated_at', 'scheduled_time', 'is_instant_payment', 'items', 'payment_message', 'payment_receipt', 'has_review', 'review_details',
             'delivery_code', 'delivery_code_attempts', 'is_locked', 'is_suspicious', 'prep_time_option', 'scheduled_start_time', 
             'reschedule_requested_time', 'reschedule_requested_start_time', 'reschedule_status', 'reschedule_rejection_reason', 'reschedule_count', 'reschedule_request_count', 'reschedule_requests'
         ]
         read_only_fields = [
             'state', 'total_amount', 'customer', 'created_at', 'updated_at', 
-            'delivery_code', 'delivery_code_attempts', 'is_locked', 'is_suspicious', 'reschedule_status', 'reschedule_rejection_reason', 'reschedule_count', 'reschedule_request_count'
+            'delivery_code', 'delivery_code_attempts', 'is_locked', 'is_suspicious', 'reschedule_status', 'reschedule_rejection_reason', 'reschedule_count', 'reschedule_request_count', 'delivery_fee_status'
         ]
+
 
     def get_has_review(self, obj):
         return hasattr(obj, 'review')

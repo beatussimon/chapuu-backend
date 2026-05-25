@@ -381,6 +381,46 @@ class OrderViewSet(viewsets.ModelViewSet):
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def renegotiate_delivery_fee(self, request, pk=None):
+        order = self.get_object()
+        if order.customer != request.user:
+            return Response({"error": "Permission denied. Only the customer can request renegotiation of delivery fee."}, status=status.HTTP_403_FORBIDDEN)
+        order.delivery_fee_status = 'RENEGOTIATE'
+        order.save(update_fields=['delivery_fee_status'])
+        OrderStateMachine.emit_update(order)
+        return Response({"status": "Renegotiation request submitted.", "delivery_fee_status": order.delivery_fee_status})
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def update_delivery_fee(self, request, pk=None):
+        order = self.get_object()
+        is_staff = request.user.role in ['SELLER', 'ADMIN', 'SUPERUSER', 'ACCOUNTANT'] or request.user.is_superuser or order.store.owner == request.user
+        if not is_staff:
+            return Response({"error": "Permission denied. Only store staff can update the delivery fee."}, status=status.HTTP_403_FORBIDDEN)
+        
+        new_fee_val = request.data.get('delivery_fee')
+        if new_fee_val is None:
+            return Response({"error": "delivery_fee is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        from decimal import Decimal
+        try:
+            new_fee = Decimal(str(new_fee_val))
+        except (ValueError, TypeError):
+            return Response({"error": "Invalid delivery_fee value"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        order.delivery_fee = new_fee
+        items_subtotal = sum(item.unit_price * item.quantity for item in order.items.all())
+        order.total_amount = items_subtotal + new_fee
+        order.delivery_fee_status = 'AGREED'
+        order.save(update_fields=['delivery_fee', 'total_amount', 'delivery_fee_status'])
+        OrderStateMachine.emit_update(order)
+        return Response({
+            "status": "Delivery fee updated", 
+            "delivery_fee": order.delivery_fee, 
+            "total_amount": order.total_amount,
+            "delivery_fee_status": order.delivery_fee_status
+        })
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def advance_state(self, request, pk=None):
         order = self.get_object()
         user = request.user
@@ -402,10 +442,14 @@ class OrderViewSet(viewsets.ModelViewSet):
                 return Response({"error": "Cannot cancel a paid order after 10 mins."}, status=400)
 
         try:
-            if new_state == Order.State.PAID and 'delivery_fee' in request.data:
-                order.delivery_fee = request.data.get('delivery_fee')
-                order.total_amount = float(order.total_amount) + float(order.delivery_fee)
-                order.save(update_fields=['delivery_fee', 'total_amount'])
+            if new_state == Order.State.PAID:
+                if 'delivery_fee' in request.data:
+                    from decimal import Decimal
+                    order.delivery_fee = Decimal(str(request.data.get('delivery_fee') or 0))
+                    items_subtotal = sum(item.unit_price * item.quantity for item in order.items.all())
+                    order.total_amount = items_subtotal + order.delivery_fee
+                    order.delivery_fee_status = 'AGREED'
+                    order.save(update_fields=['delivery_fee', 'total_amount', 'delivery_fee_status'])
 
             updated_order = OrderStateMachine.transition_order(order, new_state, notes="Manual advance.", performed_by=user)
             

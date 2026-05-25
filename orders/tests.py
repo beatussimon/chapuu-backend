@@ -533,3 +533,98 @@ class KitchenSkipAndMixedOrdersTest(TestCase):
         updated_order.refresh_from_db()
         self.assertEqual(updated_order.state, Order.State.READY)
 
+
+class DeliveryFeeNegotiationTest(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.seller = User.objects.create_user(
+            username='seller_neg', password='password123', role='SELLER'
+        )
+        self.customer = User.objects.create_user(
+            username='customer_neg', password='password123', role='CUSTOMER'
+        )
+        self.store = Store.objects.create(
+            name='Delivery Shop',
+            owner=self.seller,
+            store_type='SHOP'
+        )
+        self.product = Product.objects.create(
+            name='Food Item',
+            price=50.0,
+            store=self.store
+        )
+
+    def test_delivery_fee_flow_and_renegotiation(self):
+        """
+        Verify:
+        1. Customer places a delivery order. Default total_amount is food subtotal, delivery_fee=0.0, status='PENDING'.
+        2. Accountant/Seller transitions order to PAID and sets delivery_fee. Status updates to 'AGREED', total_amount recalculates.
+        3. Customer requests renegotiation -> status transitions to 'RENEGOTIATE'.
+        4. Seller updates delivery_fee -> status transitions back to 'AGREED', total_amount recalculates.
+        5. Completing the order accrues 3% commission on the total final amount.
+        """
+        from orders.services import OrderStateMachine
+        from billing.models import CommissionLedgerEntry
+        
+        # 1. Customer places a delivery order
+        self.client.force_authenticate(user=self.customer)
+        url = reverse('order-list')
+        payload = {
+            'store': self.store.id,
+            'fulfillment_mode': 'DELIVERY',
+            'delivery_location': '123 Main St',
+            'payment_message': 'MPESA transaction slip 123',
+            'items': [
+                {'product': self.product.id, 'quantity': 2, 'unit_price': 50.0} # Subtotal 100.0
+            ]
+        }
+        res = self.client.post(url, payload, format='json')
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        order_id = res.data['id']
+        
+        order = Order.objects.get(id=order_id)
+        self.assertEqual(float(order.delivery_fee), 0.0)
+        self.assertEqual(order.delivery_fee_status, 'PENDING')
+        self.assertEqual(float(order.total_amount), 100.0)
+
+        # 2. Accountant/Seller sets delivery fee and advances order state to PAID
+        self.client.force_authenticate(user=self.seller)
+        advance_url = reverse('order-advance-state', kwargs={'pk': order_id})
+        res = self.client.post(advance_url, {'state': 'PAID', 'delivery_fee': 15.0}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        
+        order.refresh_from_db()
+        self.assertEqual(order.state, Order.State.READY)
+        self.assertEqual(float(order.delivery_fee), 15.0)
+        self.assertEqual(order.delivery_fee_status, 'AGREED')
+        self.assertEqual(float(order.total_amount), 115.0) # 100 + 15
+
+        # 3. Customer requests renegotiation
+        self.client.force_authenticate(user=self.customer)
+        reneg_url = reverse('order-renegotiate-delivery-fee', kwargs={'pk': order_id})
+        res = self.client.post(reneg_url, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        
+        order.refresh_from_db()
+        self.assertEqual(order.delivery_fee_status, 'RENEGOTIATE')
+
+        # 4. Seller updates delivery fee via the update_delivery_fee endpoint
+        self.client.force_authenticate(user=self.seller)
+        update_fee_url = reverse('order-update-delivery-fee', kwargs={'pk': order_id})
+        res = self.client.post(update_fee_url, {'delivery_fee': 20.0}, format='json')
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        
+        order.refresh_from_db()
+        self.assertEqual(float(order.delivery_fee), 20.0)
+        self.assertEqual(order.delivery_fee_status, 'AGREED')
+        self.assertEqual(float(order.total_amount), 120.0) # 100 + 20
+
+        # 5. Transition order to COMPLETED
+        OrderStateMachine.transition_order(order, Order.State.COMPLETED, bypass_verification=True)
+        
+        # Verify 3% commission is accrued on 120.0 (3.60)
+        entry = CommissionLedgerEntry.objects.filter(order=order).first()
+        self.assertIsNotNone(entry)
+        self.assertEqual(float(entry.commission_amount), 3.60)
+
+
