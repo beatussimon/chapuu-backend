@@ -39,6 +39,14 @@ class UserSerializer(serializers.ModelSerializer):
             new_role = attrs.get('role')
             
             if self.instance:
+                # Regular user self-update protection: block role and employed_store changes by non-admins
+                if not (current_user.role in [User.Role.SUPERUSER, User.Role.ADMIN] or current_user.is_superuser):
+                    if new_role and new_role != self.instance.role:
+                        raise serializers.ValidationError({"role": "You cannot change your own role."})
+                    new_store = attrs.get('employed_store')
+                    if new_store and new_store != self.instance.employed_store:
+                        raise serializers.ValidationError({"employed_store": "You cannot change your employed store."})
+
                 # Update case:
                 # If target is SUPERUSER or ADMIN, only SUPERUSER can edit them
                 if (self.instance.role in [User.Role.SUPERUSER, User.Role.ADMIN] or self.instance.is_superuser) and not (current_user.role == User.Role.SUPERUSER or current_user.is_superuser):

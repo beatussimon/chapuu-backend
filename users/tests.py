@@ -217,3 +217,58 @@ class CustomUserAdminTests(APITestCase):
         self.assertTrue(self.admin_class.has_change_permission(request, self.superuser))
         self.assertTrue(self.admin_class.has_change_permission(request, self.admin))
 
+
+class CustomerSelfProfileUpdateTests(APITestCase):
+    def setUp(self):
+        self.customer = User.objects.create_user(
+            username='cust_test',
+            password='password123',
+            role=User.Role.CUSTOMER
+        )
+        self.seller = User.objects.create_user(
+            username='sell_test',
+            password='password123',
+            role=User.Role.SELLER
+        )
+
+    def test_customer_can_update_own_basic_info(self):
+        """Customer can update their first name, last name, email, and phone number"""
+        self.client.force_authenticate(user=self.customer)
+        url = '/api/auth/users/me/'
+        
+        payload = {
+            'first_name': 'NewFirst',
+            'last_name': 'NewLast',
+            'email': 'newemail@example.com',
+            'phone_number': '+255711111111'
+        }
+        response = self.client.patch(url, payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        self.customer.refresh_from_db()
+        self.assertEqual(self.customer.first_name, 'NewFirst')
+        self.assertEqual(self.customer.last_name, 'NewLast')
+        self.assertEqual(self.customer.email, 'newemail@example.com')
+        self.assertEqual(self.customer.phone_number, '+255711111111')
+
+    def test_customer_cannot_update_own_role(self):
+        """Customer is blocked from updating their own role"""
+        self.client.force_authenticate(user=self.customer)
+        url = '/api/auth/users/me/'
+        
+        response = self.client.patch(url, {'role': 'ADMIN'}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('role', response.data)
+
+    def test_customer_cannot_update_own_employed_store(self):
+        """Customer is blocked from updating their own employed_store"""
+        from stores.models import Store
+        store = Store.objects.create(name='Test Store', store_type='SHOP', owner=self.seller)
+        
+        self.client.force_authenticate(user=self.customer)
+        url = '/api/auth/users/me/'
+        
+        response = self.client.patch(url, {'employed_store': store.id}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('employed_store', response.data)
+
