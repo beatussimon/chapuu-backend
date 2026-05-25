@@ -352,7 +352,7 @@ class StoreViewSet(viewsets.ModelViewSet):
         
         # Calculate star counts
         star_counts = {5: 0, 4: 0, 3: 0, 2: 0, 1: 0}
-        counts_query = reviews.values('rating').annotate(count=Count('id'))
+        counts_query = reviews.order_by().values('rating').annotate(count=Count('id'))
         for item in counts_query:
             r = item['rating']
             if 1 <= r <= 5:
