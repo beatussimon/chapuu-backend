@@ -39,9 +39,15 @@ This document defines the foundational architecture, safety protocols, and codin
 - **Responsive Layout**: Navigation bars must have solid backgrounds (`bg-dark-950/95`) and `backdrop-blur` to prevent scroll bleed.
 
 ### Backend (Django + DRF)
+- **Billing & Commissions**: The `billing` app manages a 3% platform commission on `COMPLETED` orders. Invoices are generated monthly and tracked via `MonthlyInvoice`.
+- **Order State Machine**: Governs all transitions. Key updates:
+    - **Handoff Verification**: 6-digit `delivery_code` required for `COMPLETED` state in delivery/pickup/takeaway modes.
+    - **Stock Restoration**: `CANCELLED`, `EXPIRED`, `REFUNDED` states automatically trigger stock return.
+    - **Auto-Ready**: Non-kitchen products are auto-ready on payment; orders without kitchen items skip directly to `READY`.
 - **Role Hierarchy**: State transitions in `advance_state` are strictly role-gated (e.g., only `ACCOUNTANT` can verify payment, only `CHEF` can mark ready). Maintain these permission checks.
 - **Queryset Scoping**: Always filter querysets by `request.user` or `store` in `get_queryset()` to prevent data leaks.
-- **Image Compression**: Store and Payment images must pass through the `compress_image` utility to convert to WebP.
+- **Image Compression**: Store, Product, and Gallery images must pass through the `compress_image` utility to convert to WebP/JPEG.
+- **Support & Gallery**: `SystemSupportConfig` manages global support contacts. `StoreGalleryImage` allows stores to showcase multiple photos.
 - **Parity**: Rules like "Mandatory Transaction IDs" must be enforced at both the Serializer and React levels.
 
 ## 4. Deployment & Workflow (MANDATORY SEQUENCE)
