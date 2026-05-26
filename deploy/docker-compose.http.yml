@@ -110,7 +110,7 @@ services:
 
   frontend:
     build:
-      context: ../../chapuu-web-frontend
+      context: ../../chapuu-web-frontend/apps/web
       dockerfile: Dockerfile.prod
       args:
         VITE_BACKEND_URL: http://13.127.242.204
