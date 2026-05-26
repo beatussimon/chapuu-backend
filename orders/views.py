@@ -9,6 +9,7 @@ from payments.models import Payment
 from stores.services import KitchenEngine
 from django.core.exceptions import PermissionDenied
 import logging
+from config.pagination import StandardPagination
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ class OrderViewSet(viewsets.ModelViewSet):
     """
     serializer_class = OrderSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    pagination_class = StandardPagination
 
     def get_serializer_class(self):
         # Use a restricted serializer for anonymous users (Public TV displays)
@@ -63,8 +65,22 @@ class OrderViewSet(viewsets.ModelViewSet):
 
         if store_id:
             queryset = queryset.filter(store_id=store_id)
+
+        search = self.request.query_params.get('search')
+        if search:
+            from django.db.models import Q
+            query = Q(store__name__icontains=search) | Q(customer__username__icontains=search) | Q(customer__first_name__icontains=search) | Q(customer__last_name__icontains=search)
+            if search.isdigit():
+                query |= Q(id=int(search))
+            queryset = queryset.filter(query)
+
+        is_locked = self.request.query_params.get('is_locked')
+        if is_locked in ['true', 'True', '1']:
+            from django.db.models import Q
+            queryset = queryset.filter(Q(is_locked=True) | Q(delivery_code_attempts__gt=0))
             
         return queryset
+
 
     def perform_create(self, serializer):
         user = self.request.user
@@ -382,13 +398,25 @@ class OrderViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
     def reverse_geocode(self, request):
-        lat = request.query_params.get('lat')
-        lon = request.query_params.get('lon')
-        if not lat or not lon:
+        lat_raw = request.query_params.get('lat')
+        lon_raw = request.query_params.get('lon')
+        if not lat_raw or not lon_raw:
             return Response({"error": "lat and lon are required parameters"}, status=status.HTTP_400_BAD_REQUEST)
         
+        from django.core.cache import cache
         import requests
+        from decimal import Decimal
+
         try:
+            # Round to 4 decimal places (~11m precision) to maximize cache hits for users in same spot
+            lat = str(Decimal(lat_raw).quantize(Decimal('0.0001')))
+            lon = str(Decimal(lon_raw).quantize(Decimal('0.0001')))
+            
+            cache_key = f"reverse_geo_{lat}_{lon}"
+            cached_address = cache.get(cache_key)
+            if cached_address:
+                return Response({"display_name": cached_address, "cached": True})
+
             headers = {
                 'User-Agent': 'Chapuu-Backend-Reverse-Geocoding-Proxy/1.0 (contact: support@chapuu.com)'
             }
@@ -397,13 +425,20 @@ class OrderViewSet(viewsets.ModelViewSet):
                 headers=headers,
                 timeout=5
             )
+            
             if response.status_code == 200:
                 data = response.json()
                 if 'display_name' in data:
-                    return Response({"display_name": data['display_name']})
-            return Response({"error": "Failed to resolve address from geocoding service"}, status=status.HTTP_400_BAD_REQUEST)
+                    display_name = data['display_name']
+                    # Cache for 7 days - geodata doesn't change often
+                    cache.set(cache_key, display_name, 60*60*24*7)
+                    return Response({"display_name": display_name, "cached": False})
+            
+            # If throttled (429) or service down, fallback to raw coordinates
+            return Response({"display_name": f"Location: {lat_raw}, {lon_raw}", "fallback": True})
+            
         except Exception as e:
-            return Response({"error": f"Geocoding request failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"display_name": f"Location: {lat_raw}, {lon_raw}", "fallback": True, "error": str(e)})
 
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def renegotiate_delivery_fee(self, request, pk=None):

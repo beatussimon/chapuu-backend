@@ -217,6 +217,14 @@ class PublicOrderItemSerializer(serializers.ModelSerializer):
 
 class PublicOrderSerializer(serializers.ModelSerializer):
     items = PublicOrderItemSerializer(many=True, read_only=True)
+    customer_initial = serializers.SerializerMethodField()
+    table_number = serializers.CharField(source='table.number', read_only=True)
+
     class Meta:
         model = Order
-        fields = ['id', 'state', 'fulfillment_mode', 'created_at', 'items']
+        fields = ['id', 'state', 'fulfillment_mode', 'created_at', 'items', 'customer_initial', 'table_number']
+
+    def get_customer_initial(self, obj):
+        if obj.customer and obj.customer.username:
+            return obj.customer.username[0].upper() + "."
+        return "A."

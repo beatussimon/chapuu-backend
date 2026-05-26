@@ -651,7 +651,7 @@ class ReverseGeocodeProxyTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data['display_name'], "Tegeta, Dar es Salaam, Tanzania")
         mock_get.assert_called_once_with(
-            "https://nominatim.openstreetmap.org/reverse?lat=-6.827&lon=39.2675&format=json",
+            "https://nominatim.openstreetmap.org/reverse?lat=-6.8270&lon=39.2675&format=json",
             headers={'User-Agent': 'Chapuu-Backend-Reverse-Geocoding-Proxy/1.0 (contact: support@chapuu.com)'},
             timeout=5
         )
@@ -665,8 +665,9 @@ class ReverseGeocodeProxyTests(TestCase):
 
         url = reverse('order-reverse-geocode')
         response = self.client.get(url, {'lat': '-6.827', 'lon': '39.2675'})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("error", response.data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data.get('fallback'))
+        self.assertIn("Location:", response.data.get('display_name'))
 
     @patch('requests.get')
     def test_reverse_geocode_exception(self, mock_get):
@@ -676,9 +677,9 @@ class ReverseGeocodeProxyTests(TestCase):
 
         url = reverse('order-reverse-geocode')
         response = self.client.get(url, {'lat': '-6.827', 'lon': '39.2675'})
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("error", response.data)
-        self.assertIn("Geocoding request failed", response.data['error'])
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data.get('fallback'))
+        self.assertIn("Location:", response.data.get('display_name'))
 
     def test_reverse_geocode_missing_parameters(self):
         url = reverse('order-reverse-geocode')

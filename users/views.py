@@ -4,6 +4,8 @@ from rest_framework.decorators import action
 from django.contrib.auth import get_user_model
 from users.serializers import UserSerializer, StaffSerializer
 from stores.models import Store
+from config.pagination import LargePagination, StandardPagination
+
 
 User = get_user_model()
 
@@ -21,6 +23,7 @@ class StaffManagementViewSet(viewsets.ModelViewSet):
     """
     serializer_class = StaffSerializer
     permission_classes = [IsSeller | IsAdminUser]
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         user = self.request.user
@@ -79,9 +82,23 @@ class UserViewSet(viewsets.ModelViewSet):
     """
     CRUD for users. Restricted strictly to ADMINs.
     """
-    queryset = User.objects.all()
     serializer_class = UserSerializer
     permission_classes = [IsAdminUser]
+    pagination_class = LargePagination
+
+    def get_queryset(self):
+        queryset = User.objects.all()
+        search = self.request.query_params.get('search')
+        if search:
+            from django.db.models import Q
+            queryset = queryset.filter(
+                Q(username__icontains=search) |
+                Q(first_name__icontains=search) |
+                Q(last_name__icontains=search) |
+                Q(email__icontains=search) |
+                Q(phone_number__icontains=search)
+            )
+        return queryset
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()

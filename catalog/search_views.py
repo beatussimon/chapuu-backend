@@ -29,7 +29,9 @@ class UniversalSearchView(APIView):
         category_id = request.query_params.get('category')
         store_type = request.query_params.get('store_type')
         is_open = request.query_params.get('is_open')
+        
         limit = int(request.query_params.get('limit', 20))
+        offset = int(request.query_params.get('offset', 0))
 
         # 1. Base Querysets
         # Only search active stores
@@ -96,9 +98,9 @@ class UniversalSearchView(APIView):
         scored_products = score_products(products_list, lat, lng, scoring_radius, request.user, q)
 
         # Limit results size
-        final_stores = scored_stores[:limit]
-        final_products = scored_products[:limit]
-        final_categories = list(categories_qs)[:limit]
+        final_stores = scored_stores[offset:offset+limit]
+        final_products = scored_products[offset:offset+limit]
+        final_categories = list(categories_qs)[offset:offset+limit]
 
         # 5. Serialize Response
         # Stores serialization
@@ -131,9 +133,44 @@ class UniversalSearchView(APIView):
         elif search_type == 'categories':
             results['categories'] = serialized_categories
 
+        # Next / Prev URL calculation
+        from django.utils.http import urlencode
+        base_url = request.build_absolute_uri(request.path)
+        
+        # Build query parameters base dictionary
+        params = {}
+        if q: params['q'] = q
+        if search_type != 'all': params['type'] = search_type
+        if lat: params['lat'] = lat
+        if lng: params['lng'] = lng
+        if radius != '2.0': params['radius'] = radius
+        if category_id: params['category'] = category_id
+        if store_type: params['store_type'] = store_type
+        if is_open: params['is_open'] = is_open
+        params['limit'] = limit
+        
+        next_url = None
+        has_next = (
+            (len(scored_stores) > offset + limit) or 
+            (len(scored_products) > offset + limit) or 
+            (categories_qs.count() > offset + limit)
+        )
+        if has_next:
+            next_params = params.copy()
+            next_params['offset'] = offset + limit
+            next_url = f"{base_url}?{urlencode(next_params)}"
+            
+        prev_url = None
+        if offset > 0:
+            prev_params = params.copy()
+            prev_params['offset'] = max(0, offset - limit)
+            prev_url = f"{base_url}?{urlencode(prev_params)}"
+
         return Response({
             "query": q,
             "results": results,
             "total_count": total_count,
-            "location_active": location_active
+            "location_active": location_active,
+            "next": next_url,
+            "previous": prev_url
         })

@@ -14,6 +14,8 @@ from billing.serializers import (
     CommissionLedgerEntrySerializer, MonthlyInvoiceSerializer, 
     CommissionPaymentSerializer, PlatformPaymentMethodSerializer
 )
+from config.pagination import SmallPagination
+
 
 class IsSellerOrAdmin(permissions.BasePermission):
 
@@ -23,6 +25,7 @@ class IsSellerOrAdmin(permissions.BasePermission):
 class CommissionLedgerEntryViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = CommissionLedgerEntrySerializer
     permission_classes = [IsSellerOrAdmin]
+    pagination_class = SmallPagination
 
     def get_queryset(self):
         user = self.request.user
@@ -33,6 +36,7 @@ class CommissionLedgerEntryViewSet(viewsets.ReadOnlyModelViewSet):
 class MonthlyInvoiceViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = MonthlyInvoiceSerializer
     permission_classes = [IsSellerOrAdmin]
+    pagination_class = SmallPagination
 
     def get_queryset(self):
         user = self.request.user
@@ -72,6 +76,7 @@ class MonthlyInvoiceViewSet(viewsets.ReadOnlyModelViewSet):
 class CommissionPaymentViewSet(viewsets.ModelViewSet):
     serializer_class = CommissionPaymentSerializer
     permission_classes = [IsSellerOrAdmin]
+    pagination_class = SmallPagination
 
     def get_queryset(self):
         user = self.request.user
@@ -122,6 +127,7 @@ class CommissionPaymentViewSet(viewsets.ModelViewSet):
 class PlatformPaymentMethodViewSet(viewsets.ModelViewSet):
     serializer_class = PlatformPaymentMethodSerializer
     queryset = PlatformPaymentMethod.objects.filter(is_active=True)
+    pagination_class = None
 
     def get_permissions(self):
         from users.permissions import IsSuperUser

@@ -7,6 +7,7 @@ from stores.serializers import StoreSerializer, KitchenSettingsSerializer, Adver
 from stores.services import KitchenEngine
 from reviews.models import StoreReview
 from reviews.serializers import StoreReviewSerializer
+from config.pagination import LargePagination, StandardPagination
 
 class IsAdminOrReadOnly(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -24,6 +25,7 @@ class GlobalPaymentMethodViewSet(viewsets.ModelViewSet):
     queryset = GlobalPaymentMethod.objects.all()
     serializer_class = GlobalPaymentMethodSerializer
     permission_classes = [IsSuperUserOrReadOnly]
+    pagination_class = None
 
 class IsSellerOrAdminForWriteStore(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -34,6 +36,7 @@ class IsSellerOrAdminForWriteStore(permissions.BasePermission):
 class StorePaymentMethodViewSet(viewsets.ModelViewSet):
     serializer_class = StorePaymentMethodSerializer
     permission_classes = [IsSellerOrAdminForWriteStore]
+    pagination_class = None
 
     def get_queryset(self):
         # Allow sellers/admins to see all payment methods, public to see only active
@@ -74,6 +77,7 @@ class StorePaymentMethodViewSet(viewsets.ModelViewSet):
 class StoreGalleryImageViewSet(viewsets.ModelViewSet):
     serializer_class = StoreGalleryImageSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    pagination_class = None
 
     def get_queryset(self):
         queryset = StoreGalleryImage.objects.all()
@@ -109,6 +113,7 @@ class StoreGalleryImageViewSet(viewsets.ModelViewSet):
 class NoticeViewSet(viewsets.ModelViewSet):
     serializer_class = NoticeSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         user = self.request.user
@@ -146,11 +151,13 @@ class CurrencyConfigViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = CurrencyConfig.objects.filter(is_active=True)
     serializer_class = CurrencyConfigSerializer
     permission_classes = [permissions.AllowAny]
+    pagination_class = None
 
 class TableViewSet(viewsets.ModelViewSet):
     """CRUD for tables. Read-only for customers, full CRUD for sellers/admins."""
     serializer_class = TableSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    pagination_class = None
 
     def get_queryset(self):
         queryset = Table.objects.filter(is_active=True)
@@ -163,6 +170,7 @@ class AdvertisementViewSet(viewsets.ModelViewSet):
     queryset = Advertisement.objects.filter(is_active=True)
     serializer_class = AdvertisementSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    pagination_class = None
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -183,6 +191,7 @@ class StoreViewSet(viewsets.ModelViewSet):
     queryset = Store.objects.all().prefetch_related('payment_methods', 'kitchen_settings')
     serializer_class = StoreSerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    pagination_class = LargePagination
 
     def get_queryset(self):
         user = self.request.user
@@ -194,7 +203,7 @@ class StoreViewSet(viewsets.ModelViewSet):
         # Intelligent Caching for the main store list (no filters/params)
         # This drastically reduces DB load for the 'Browse' page
         if not request.query_params:
-            cache_key = "all_stores_list"
+            cache_key = "all_stores_list_page_1"
             cached_data = cache.get(cache_key)
             if cached_data:
                 return Response(cached_data)
@@ -239,13 +248,12 @@ class StoreViewSet(viewsets.ModelViewSet):
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
+            response = self.get_paginated_response(serializer.data)
+            if not request.query_params:
+                cache.set("all_stores_list_page_1", response.data, 60*60) # Cache for 1 hour
+            return response
 
         serializer = self.get_serializer(queryset, many=True)
-        
-        if not request.query_params:
-            cache.set("all_stores_list", serializer.data, 60*60) # Cache for 1 hour
-            
         return Response(serializer.data)
 
     

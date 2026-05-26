@@ -7,39 +7,48 @@ from reservations.models import Reservation, TableSession
 from reservations.serializers import ReservationSerializer, TableSessionSerializer
 from reservations.services import ReservationEngine
 from stores.models import Table, Store
+from django.core.cache import cache
 import datetime
+from config.pagination import StandardPagination
+
 
 class ReservationViewSet(viewsets.ModelViewSet):
     serializer_class = ReservationSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         user = self.request.user
         now = timezone.now()
 
-        # 1. Auto-expire overdue ACTIVE sessions
-        overdue_sessions = TableSession.objects.filter(
-            is_active=True,
-        ).select_related('reservation')
-        for session in overdue_sessions:
-            if session.reservation and session.reservation.duration_minutes:
-                expiry = session.started_at + datetime.timedelta(minutes=session.reservation.duration_minutes)
-                if now > expiry:
-                    session.is_active = False
-                    session.ended_at = now
-                    session.save(update_fields=['is_active', 'ended_at'])
-                    session.reservation.status = Reservation.Status.COMPLETED
-                    session.reservation.save(update_fields=['status'])
+        # Optimize cleanup logic: run at most once per minute
+        cleanup_lock = cache.get('last_reservation_cleanup')
+        if not cleanup_lock:
+            # 1. Auto-expire overdue ACTIVE sessions
+            overdue_sessions = TableSession.objects.filter(
+                is_active=True,
+            ).select_related('reservation')
+            for session in overdue_sessions:
+                if session.reservation and session.reservation.duration_minutes:
+                    expiry = session.started_at + datetime.timedelta(minutes=session.reservation.duration_minutes)
+                    if now > expiry:
+                        session.is_active = False
+                        session.ended_at = now
+                        session.save(update_fields=['is_active', 'ended_at'])
+                        session.reservation.status = Reservation.Status.COMPLETED
+                        session.reservation.save(update_fields=['status'])
 
-        # 2. Auto-mark PENDING/CONFIRMED as NO_SHOW if they are 30+ mins late
-        expiry_threshold = now - datetime.timedelta(minutes=30)
-        late_reservations = Reservation.objects.filter(
-            status__in=[Reservation.Status.PENDING, Reservation.Status.CONFIRMED],
-            reservation_time__lte=expiry_threshold
-        )
-        for res in late_reservations:
-            res.status = Reservation.Status.NO_SHOW
-            res.save(update_fields=['status'])
+            # 2. Auto-mark PENDING/CONFIRMED as NO_SHOW if they are 30+ mins late
+            expiry_threshold = now - datetime.timedelta(minutes=30)
+            late_reservations = Reservation.objects.filter(
+                status__in=[Reservation.Status.PENDING, Reservation.Status.CONFIRMED],
+                reservation_time__lte=expiry_threshold
+            )
+            for res in late_reservations:
+                res.status = Reservation.Status.NO_SHOW
+                res.save(update_fields=['status'])
+                
+            cache.set('last_reservation_cleanup', True, 60)
 
         if user.role == 'SELLER':
             queryset = Reservation.objects.filter(store__owner=user)
@@ -123,6 +132,9 @@ class ReservationViewSet(viewsets.ModelViewSet):
         if not is_seller_admin_su:
             return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
             
+        if reservation.status != Reservation.Status.PENDING:
+            return Response({"error": f"Cannot confirm a reservation with status {reservation.status}."}, status=status.HTTP_400_BAD_REQUEST)
+
         reservation.status = Reservation.Status.CONFIRMED
         reservation.save()
         return Response({"status": "Reservation confirmed", "id": reservation.id})
@@ -219,14 +231,72 @@ class ReservationViewSet(viewsets.ModelViewSet):
         reservation = self.get_object()
         if request.user.role not in ['SELLER', 'ADMIN', 'SUPERUSER', 'CHEF'] and not request.user.is_superuser:
             return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+        
+        if reservation.status not in [Reservation.Status.PENDING, Reservation.Status.CONFIRMED]:
+            return Response({"error": f"Cannot mark a {reservation.status} reservation as NO_SHOW."}, status=status.HTTP_400_BAD_REQUEST)
+
         reservation.status = Reservation.Status.NO_SHOW
         reservation.save(update_fields=['status'])
         return Response({"status": "Marked as NO_SHOW"})
+
+    @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def walk_in(self, request):
+        """Creates a walk-in reservation immediately (ACTIVE + session created)."""
+        is_seller_admin_su = request.user.role in ['SELLER', 'ADMIN', 'SUPERUSER'] or request.user.is_superuser
+        if not is_seller_admin_su:
+            return Response({"error": "Permission denied"}, status=status.HTTP_403_FORBIDDEN)
+            
+        data = request.data
+        try:
+            store_id = data.get('store')
+            if not store_id:
+                if request.user.role == 'SELLER':
+                    store = Store.objects.filter(owner=request.user).first()
+                else:
+                    store = getattr(request.user, 'employed_store', None) or Store.objects.first()
+            else:
+                store = Store.objects.get(id=store_id)
+                
+            if not store:
+                return Response({"error": "Store not found."}, status=status.HTTP_404_NOT_FOUND)
+                
+            table_id = data.get('table')
+            table = None
+            if table_id:
+                try:
+                    table = Table.objects.get(id=table_id, store=store)
+                except Table.DoesNotExist:
+                    return Response({"error": "Selected table not found in this restaurant."}, status=status.HTTP_404_NOT_FOUND)
+            
+            try:
+                duration = int(data.get('duration_minutes', 60))
+                guests = int(data.get('guest_count', 1))
+            except (ValueError, TypeError):
+                return Response({"error": "Invalid guest count or duration."}, status=status.HTTP_400_BAD_REQUEST)
+
+            reservation = ReservationEngine.create_walk_in(
+                store=store,
+                customer=request.user,
+                duration_minutes=duration,
+                guest_count=guests,
+                table=table
+            )
+            
+            serializer = self.get_serializer(reservation)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+            
+        except Store.DoesNotExist:
+            return Response({"error": "Restaurant not found."}, status=status.HTTP_404_NOT_FOUND)
+        except ValueError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({"error": f"Internal walk-in error: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class TableSessionViewSet(viewsets.ModelViewSet):
     serializer_class = TableSessionSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None
 
     def get_queryset(self):
         user = self.request.user

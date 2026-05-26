@@ -5,6 +5,8 @@ from rest_framework.response import Response
 from catalog.models import Product, Category, InventoryStock, Ingredient, RecipeIngredient, StockAdjustmentLog
 from catalog.serializers import ProductSerializer, CategorySerializer, InventoryStockSerializer, IngredientSerializer, RecipeIngredientSerializer
 from decimal import Decimal, InvalidOperation
+from config.pagination import LargePagination, StandardPagination
+
 
 class IsSellerOrAdminForWrite(permissions.BasePermission):
     """Allow anyone to read, but only SELLER/ADMIN to write."""
@@ -26,6 +28,16 @@ class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.filter(is_active=True)
     serializer_class = ProductSerializer
     permission_classes = [IsSellerOrAdminForWrite]
+    pagination_class = LargePagination
+
+    @property
+    def paginator(self):
+        # Disable pagination if store filter is applied or if requested by seller/staff
+        if 'store' in self.request.query_params or (
+            self.request.user.is_authenticated and self.request.user.role in ['SELLER', 'CHEF', 'ACCOUNTANT']
+        ):
+            return None
+        return super().paginator
 
     def get_queryset(self):
         user = self.request.user
@@ -133,6 +145,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
+    pagination_class = None
     
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -166,6 +179,7 @@ class InventoryStockViewSet(viewsets.ModelViewSet):
     """
     serializer_class = InventoryStockSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = StandardPagination
 
     def get_queryset(self):
         user = self.request.user
@@ -209,6 +223,7 @@ class InventoryStockViewSet(viewsets.ModelViewSet):
 class IngredientViewSet(viewsets.ModelViewSet):
     serializer_class = IngredientSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None
 
     def get_queryset(self):
         user = self.request.user
@@ -223,6 +238,7 @@ class IngredientViewSet(viewsets.ModelViewSet):
 class RecipeIngredientViewSet(viewsets.ModelViewSet):
     serializer_class = RecipeIngredientSerializer
     permission_classes = [permissions.IsAuthenticated]
+    pagination_class = None
 
     def get_queryset(self):
         user = self.request.user

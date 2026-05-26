@@ -22,6 +22,7 @@ class ReservationOrderSerializer(serializers.Serializer):
 class ReservationSerializer(serializers.ModelSerializer):
     customer_name = serializers.CharField(source='customer.username', read_only=True)
     table_number = serializers.CharField(source='table.number', read_only=True)
+    session_id = serializers.SerializerMethodField()
     session_started_at = serializers.SerializerMethodField()
     can_modify = serializers.SerializerMethodField()
     linked_order = serializers.SerializerMethodField()
@@ -31,7 +32,7 @@ class ReservationSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'store', 'customer', 'customer_name', 'table', 'table_number', 
             'reservation_time', 'duration_minutes', 'guest_count', 
-            'status', 'deposit_amount', 'created_at', 'session_started_at', 'can_modify',
+            'status', 'deposit_amount', 'created_at', 'session_id', 'session_started_at', 'can_modify',
             'linked_order'
         ]
         read_only_fields = ['customer', 'status', 'deposit_amount', 'created_at']
@@ -67,6 +68,12 @@ class ReservationSerializer(serializers.ModelSerializer):
         session = getattr(obj, 'session', None)
         if session and session.is_active:
             return session.started_at
+        return None
+
+    def get_session_id(self, obj):
+        session = getattr(obj, 'session', None)
+        if session and session.is_active:
+            return session.id
         return None
 
 class TableSessionSerializer(serializers.ModelSerializer):
