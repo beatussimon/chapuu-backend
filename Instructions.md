@@ -39,16 +39,18 @@ This document defines the foundational architecture, safety protocols, and codin
 - **Responsive Layout**: Navigation bars must have solid backgrounds (`bg-dark-950/95`) and `backdrop-blur` to prevent scroll bleed.
 
 ### Backend (Django + DRF)
-- **Billing & Commissions**: The `billing` app manages a 3% platform commission on `COMPLETED` orders. Invoices are generated monthly and tracked via `MonthlyInvoice`.
+- **Billing & Commissions**: The `billing` app manages a 3% platform commission on `COMPLETED` orders. 
+    - **Cancellation Fees**: Scheduled orders cancelled by customers incur a **6% fee** (3% platform, 3% store).
 - **Order State Machine**: Governs all transitions. Key updates:
-    - **Handoff Verification**: 6-digit `delivery_code` required for `COMPLETED` state in delivery/pickup/takeaway modes.
+    - **Handoff Verification**: 6-digit `delivery_code` required for `COMPLETED` state. 5 failed attempts lock the order.
     - **Stock Restoration**: `CANCELLED`, `EXPIRED`, `REFUNDED` states automatically trigger stock return.
     - **Auto-Ready**: Non-kitchen products are auto-ready on payment; orders without kitchen items skip directly to `READY`.
-- **Role Hierarchy**: State transitions in `advance_state` are strictly role-gated (e.g., only `ACCOUNTANT` can verify payment, only `CHEF` can mark ready). Maintain these permission checks.
+    - **Renegotiation**: Supports `RENEGOTIATE` state for delivery fees, allowing staff to update and recalculate totals.
+- **Geolocation**: Proximity sorting via Haversine and reverse geocoding proxy (OSM) are handled in the backend to protect API keys and ensure performance.
+- **Role Hierarchy**: State transitions in `advance_state` are strictly role-gated. Maintain these permission checks.
 - **Queryset Scoping**: Always filter querysets by `request.user` or `store` in `get_queryset()` to prevent data leaks.
 - **Image Compression**: Store, Product, and Gallery images must pass through the `compress_image` utility to convert to WebP/JPEG.
 - **Support & Gallery**: `SystemSupportConfig` manages global support contacts. `StoreGalleryImage` allows stores to showcase multiple photos.
-- **Parity**: Rules like "Mandatory Transaction IDs" must be enforced at both the Serializer and React levels.
 
 ## 4. Deployment & Workflow (MANDATORY SEQUENCE)
 - **PUSH-BEFORE-PULL**: Never modify code directly on the production instance. The absolute mandatory sequence is: **Local Fix** → **Local Verification** → **Push to GitHub (master)** → **Pull on Remote Instance** → **Docker Rebuild**.
