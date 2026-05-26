@@ -89,7 +89,7 @@ services:
       - "traefik.enable=true"
       - "traefik.docker.network=chapuu_network"
       # HTTP API + Admin + Static + Media
-      - "traefik.http.routers.backend.rule=Host(`${TRAEFIK_DOMAIN}`, `www.${TRAEFIK_DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/admin`) || PathPrefix(`/static`) || PathPrefix(`/media`))"
+      - "traefik.http.routers.backend.rule=Host(`${TRAEFIK_DOMAIN}`, `www.${TRAEFIK_DOMAIN}`) && (PathPrefix(`/api`) || PathPrefix(`/django-admin`) || PathPrefix(`/static`) || PathPrefix(`/media`))"
       - "traefik.http.routers.backend.entrypoints=websecure"
       - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
       - "traefik.http.routers.backend.priority=10"
