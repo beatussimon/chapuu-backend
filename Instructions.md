@@ -5,6 +5,7 @@ This document defines the foundational architecture, safety protocols, and codin
 ---
 
 ## 1. System Integrity & Data Safety (CRITICAL)
+- **BUILD VERIFICATION**: You **MUST** test the build in both the web app (`apps/web`) and mobile app (`apps/mobile`) before marking any task as done. Use `npm run build` in the monorepo root to verify all workspaces.
 - **ZERO DATA WIPING**: Never execute `flush`, `reset_db`, or `rm -rf` on the database or media volumes. Protect `db.sqlite3` and production PostgreSQL at all costs.
 - **NO DESTRUCTIVE SEEDING**: Never write or run database seeding, cleanup, or initialization commands/scripts that execute `DELETE`, `TRUNCATE`, or `DROP` commands on user-created data tables (such as `stores`, `products`, `orders`, `users`, `reviews`, etc.). All seeding operations must strictly be additive (using `get_or_create` or safe updates) to protect existing database records.
 - **SAFE MIGRATIONS**: Prefer additive changes. Never drop columns or tables without explicit confirmation and a verified backup strategy.
