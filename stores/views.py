@@ -257,6 +257,20 @@ class StoreViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
     
+    def retrieve(self, request, *args, **kwargs):
+        # Surgical Caching for specific store profiles
+        cache_key = f"store_detail_{kwargs.get('pk')}"
+        cached_data = cache.get(cache_key)
+        if cached_data:
+            return Response(cached_data)
+            
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        
+        # Cache for 24 hours (cleared by signals on update)
+        cache.set(cache_key, serializer.data, 60*60*24)
+        return Response(serializer.data)
+
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():

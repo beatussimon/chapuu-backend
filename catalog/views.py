@@ -18,6 +18,8 @@ class IsSellerOrAdminForWrite(permissions.BasePermission):
             (request.user.role in ['SELLER', 'ADMIN', 'SUPERUSER'] or request.user.is_superuser)
         )
 
+from django.core.cache import cache
+
 class ProductViewSet(viewsets.ModelViewSet):
     """
     Full CRUD for products.
@@ -38,6 +40,25 @@ class ProductViewSet(viewsets.ModelViewSet):
         ):
             return None
         return super().paginator
+
+    def list(self, request, *args, **kwargs):
+        # Intelligent Surgical Caching for Menus
+        store_id = request.query_params.get('store')
+        # Only cache public "per-store" menu lists (most frequent query)
+        if store_id and not request.user.is_authenticated and len(request.query_params) == 1:
+            cache_key = f"store_menu_{store_id}"
+            cached_data = cache.get(cache_key)
+            if cached_data:
+                return Response(cached_data)
+
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        # If caching conditions were met, set the cache after query
+        serializer = self.get_serializer(queryset, many=True)
+        if store_id and not request.user.is_authenticated and len(request.query_params) == 1:
+            cache.set(f"store_menu_{store_id}", serializer.data, 60*60*12) # 12h
+            
+        return Response(serializer.data)
 
     def get_queryset(self):
         user = self.request.user
@@ -147,6 +168,19 @@ class CategoryViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     pagination_class = None
     
+    def list(self, request, *args, **kwargs):
+        # Cache global categories (common filter list)
+        if not request.query_params:
+            cached_data = cache.get("all_categories")
+            if cached_data:
+                return Response(cached_data)
+        
+        response = super().list(request, *args, **kwargs)
+        
+        if not request.query_params:
+            cache.set("all_categories", response.data, 60*60*24)
+        return response
+
     def get_queryset(self):
         queryset = super().get_queryset()
         store_id = self.request.query_params.get('store', None)
