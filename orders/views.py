@@ -23,6 +23,12 @@ class OrderViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticatedOrReadOnly]
     pagination_class = StandardPagination
 
+    def paginate_queryset(self, queryset):
+        if self.request.query_params.get('no_pagination', 'false') == 'true':
+            return None
+        return super().paginate_queryset(queryset)
+
+
     def get_serializer_class(self):
         # Use a restricted serializer for anonymous users (Public TV displays)
         if not self.request.user or not self.request.user.is_authenticated:
