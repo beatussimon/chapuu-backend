@@ -5,6 +5,7 @@ This document defines the foundational architecture, safety protocols, and codin
 ---
 
 ## 1. System Integrity & Data Safety (CRITICAL)
+- **TESTING MANDATE**: You **MUST** run backend tests (`./myvenv/bin/python3 manage.py test`) and ensure all new features or logic changes have accompanying unit tests before marking any task as complete.
 - **BUILD VERIFICATION**: You **MUST** test the build in both the web app (`apps/web`) and mobile app (`apps/mobile`) before marking any task as done. Use `npm run build` in the monorepo root to verify all workspaces.
 - **ZERO DATA WIPING**: Never execute `flush`, `reset_db`, or `rm -rf` on the database or media volumes. Protect `db.sqlite3` and production PostgreSQL at all costs.
 - **NO DESTRUCTIVE SEEDING**: Never write or run database seeding, cleanup, or initialization commands/scripts that execute `DELETE`, `TRUNCATE`, or `DROP` commands on user-created data tables (such as `stores`, `products`, `orders`, `users`, `reviews`, etc.). All seeding operations must strictly be additive (using `get_or_create` or safe updates) to protect existing database records.
