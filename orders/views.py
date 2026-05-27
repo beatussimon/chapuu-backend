@@ -107,38 +107,39 @@ class OrderViewSet(viewsets.ModelViewSet):
         if is_instant and user.role not in STAFF_ROLES and not user.is_superuser:
             raise PermissionDenied("Only store staff can place instant payment (walk-in) orders.")
 
-        order = serializer.save(customer=user if user.is_authenticated else None)
+        with transaction.atomic():
+            order = serializer.save(customer=user if user.is_authenticated else None)
 
-        if is_instant:
-            # Payment collected in person
-            Payment.objects.create(
-                order=order,
-                reservation=order.reservation,
-                amount=order.total_amount,
-                status=Payment.Status.WAIVED,
-                notes=f"Walk-in instant payment collected by {user.username}."
-            )
-            order = OrderStateMachine.transition_order(order, Order.State.PAID, notes="Walk-in order — instant payment.", performed_by=user)
-            
-            # Route based on store type or auto-ready skip
-            if order.state == Order.State.READY:
-                pass
-            elif order.store.store_type == 'SHOP':
-                order = OrderStateMachine.transition_order(order, Order.State.READY, notes="Shop walk-in — instant ready.", performed_by=user)
+            if is_instant:
+                # Payment collected in person
+                Payment.objects.create(
+                    order=order,
+                    reservation=order.reservation,
+                    amount=order.total_amount,
+                    status=Payment.Status.WAIVED,
+                    notes=f"Walk-in instant payment collected by {user.username}."
+                )
+                order = OrderStateMachine.transition_order(order, Order.State.PAID, notes="Walk-in order — instant payment.", performed_by=user)
+                
+                # Route based on store type or auto-ready skip
+                if order.state == Order.State.READY:
+                    pass
+                elif order.store.store_type == 'SHOP':
+                    order = OrderStateMachine.transition_order(order, Order.State.READY, notes="Shop walk-in — instant ready.", performed_by=user)
+                else:
+                    KitchenEngine.enqueue_order(order)
+                    order = OrderStateMachine.transition_order(order, Order.State.QUEUED, notes="Walk-in order queued.", performed_by=user)
             else:
-                KitchenEngine.enqueue_order(order)
-                order = OrderStateMachine.transition_order(order, Order.State.QUEUED, notes="Walk-in order queued.", performed_by=user)
-        else:
-            # Standard flow
-            Payment.objects.create(
-                order=order,
-                reservation=order.reservation,
-                amount=order.total_amount,
-                status=Payment.Status.PENDING
-            )
-            order = OrderStateMachine.transition_order(order, Order.State.AWAITING_PAYMENT, notes="Awaiting offline payment.", performed_by=user)
-        
-        serializer.instance = order
+                # Standard flow
+                Payment.objects.create(
+                    order=order,
+                    reservation=order.reservation,
+                    amount=order.total_amount,
+                    status=Payment.Status.PENDING
+                )
+                order = OrderStateMachine.transition_order(order, Order.State.AWAITING_PAYMENT, notes="Awaiting offline payment.", performed_by=user)
+            
+            serializer.instance = order
 
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def cancel(self, request, pk=None):
