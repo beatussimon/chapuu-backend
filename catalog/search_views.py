@@ -65,7 +65,6 @@ class UniversalSearchView(APIView):
             products_qs = products_qs.filter(category_id=category_id)
 
         # 4. Proximity Math & Scoring
-        stores_list = list(stores_qs)
         
         # Distance-annotate and filter stores/products if coordinates are present
         location_active = False
@@ -78,17 +77,21 @@ class UniversalSearchView(APIView):
                 
                 # Proximity sorting/filtering via Haversine
                 from stores.geo_utils import annotate_distances, filter_by_radius
-                stores_list = annotate_distances(stores_list, lat, lng)
+                # Only convert to list here because haversine needs objects for math
+                stores_list = annotate_distances(list(stores_qs), lat, lng)
                 
                 # Filter by radius if a non-zero radius is requested
                 if radius > 0:
                     stores_list = filter_by_radius(stores_list, radius)
                 
                 # Filter products to only those from stores within the radius/proximity list in the database
+                # Efficiently filter using the IDs of already-filtered stores
                 allowed_store_ids = {s.id for s in stores_list}
                 products_qs = products_qs.filter(store_id__in=allowed_store_ids)
             except (ValueError, TypeError):
-                pass
+                stores_list = list(stores_qs)
+        else:
+            stores_list = list(stores_qs)
 
         products_list = list(products_qs)
 

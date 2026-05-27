@@ -467,12 +467,15 @@ class OrderViewSet(viewsets.ModelViewSet):
         except (ValueError, TypeError):
             return Response({"error": "Invalid delivery_fee value"}, status=status.HTTP_400_BAD_REQUEST)
         
-        order.delivery_fee = new_fee
-        items_subtotal = sum(item.unit_price * item.quantity for item in order.items.all())
-        order.total_amount = items_subtotal + new_fee
-        order.delivery_fee_status = 'AGREED'
-        order.save(update_fields=['delivery_fee', 'total_amount', 'delivery_fee_status'])
-        OrderStateMachine.emit_update(order)
+        with transaction.atomic():
+            order = Order.objects.select_for_update().get(pk=order.pk)
+            order.delivery_fee = new_fee
+            items_subtotal = sum(item.unit_price * item.quantity for item in order.items.all())
+            order.total_amount = items_subtotal + new_fee
+            order.delivery_fee_status = 'AGREED'
+            order.save(update_fields=['delivery_fee', 'total_amount', 'delivery_fee_status'])
+            OrderStateMachine.emit_update(order)
+            
         return Response({
             "status": "Delivery fee updated", 
             "delivery_fee": order.delivery_fee, 

@@ -149,69 +149,80 @@ class OrderStateMachine:
 
     @classmethod
     def emit_update(cls, order: Order):
-        channel_layer = get_channel_layer()
-        if not channel_layer:
-            return
+        try:
+            channel_layer = get_channel_layer()
+            if not channel_layer:
+                return
 
-        payload = {
-            'order_id': order.id,
-            'state': order.state,
-            'store_id': order.store_id
-        }
+            payload = {
+                'order_id': order.id,
+                'state': order.state,
+                'store_id': order.store_id
+            }
 
-        # Broadcast to store-specific group
-        async_to_sync(channel_layer.group_send)(
-            f'store_{order.store_id}_orders',
-            {
-                'type': 'order_update',
-                'message': payload
-            }
-        )
-        
-        # Broadcast to global group
-        async_to_sync(channel_layer.group_send)(
-            'global_orders',
-            {
-                'type': 'order_update',
-                'message': payload
-            }
-        )
-        # Broadcast to per-order group
-        async_to_sync(channel_layer.group_send)(
-            f'order_{order.id}',
-            {
-                'type': 'order_update',
-                'message': payload
-            }
-        )
+            # Broadcast to store-specific group
+            async_to_sync(channel_layer.group_send)(
+                f'store_{order.store_id}_orders',
+                {
+                    'type': 'order_update',
+                    'message': payload
+                }
+            )
+            
+            # Broadcast to global group
+            async_to_sync(channel_layer.group_send)(
+                'global_orders',
+                {
+                    'type': 'order_update',
+                    'message': payload
+                }
+            )
+            # Broadcast to per-order group
+            async_to_sync(channel_layer.group_send)(
+                f'order_{order.id}',
+                {
+                    'type': 'order_update',
+                    'message': payload
+                }
+            )
+        except Exception as e:
+            # Real-time failures should never crash the main transaction
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Real-time broadcast failed for Order #{order.id}: {str(e)}")
 
     @classmethod
     def emit_bulk_update(cls, order_ids: list, new_state: str, store_id: int):
-        channel_layer = get_channel_layer()
-        if not channel_layer:
-            return
+        try:
+            channel_layer = get_channel_layer()
+            if not channel_layer:
+                return
 
-        payload = {
-            'order_ids': order_ids,
-            'state': new_state,
-            'store_id': store_id,
-            'is_bulk': True
-        }
+            payload = {
+                'order_ids': order_ids,
+                'state': new_state,
+                'store_id': store_id,
+                'is_bulk': True
+            }
 
-        # Broadcast to store-specific group
-        async_to_sync(channel_layer.group_send)(
-            f'store_{store_id}_orders',
-            {
-                'type': 'order_update',
-                'message': payload
-            }
-        )
-        
-        # Broadcast to global group
-        async_to_sync(channel_layer.group_send)(
-            'global_orders',
-            {
-                'type': 'order_update',
-                'message': payload
-            }
-        )
+            # Broadcast to store-specific group
+            async_to_sync(channel_layer.group_send)(
+                f'store_{store_id}_orders',
+                {
+                    'type': 'order_update',
+                    'message': payload
+                }
+            )
+            
+            # Broadcast to global group
+            async_to_sync(channel_layer.group_send)(
+                'global_orders',
+                {
+                    'type': 'order_update',
+                    'message': payload
+                }
+            )
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Bulk real-time broadcast failed for Store #{store_id}: {str(e)}")
