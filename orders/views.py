@@ -56,12 +56,13 @@ class OrderViewSet(viewsets.ModelViewSet):
         if user.role in ['ADMIN', 'SUPERUSER'] or user.is_superuser:
             queryset = Order.objects.select_related('review').all()
         elif user.role == 'SELLER':
-            queryset = Order.objects.select_related('review').filter(store__owner=user)
+            # Managers/Owners: See orders for stores they own OR are employed at
+            from django.db.models import Q
+            queryset = Order.objects.select_related('review').filter(
+                Q(store__owner=user) | Q(store=user.employed_store)
+            )
         elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY']:
             store = user.employed_store
-            if not store:
-                from stores.models import Store
-                store = Store.objects.first()
             if store:
                 queryset = Order.objects.select_related('review').filter(store=store)
             else:
