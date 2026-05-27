@@ -7,7 +7,7 @@ import json
 
 class OrderStateMachine:
     VALID_TRANSITIONS = {
-        Order.State.CREATED: [Order.State.AWAITING_PAYMENT, Order.State.CANCELLED, Order.State.PAID],
+        Order.State.CREATED: [Order.State.AWAITING_PAYMENT, Order.State.CANCELLED, Order.State.PAID, Order.State.EXPIRED],
         Order.State.AWAITING_PAYMENT: [Order.State.PAID, Order.State.CANCELLED, Order.State.EXPIRED],
         Order.State.PAID: [
             Order.State.QUEUED,
