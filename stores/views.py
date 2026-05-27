@@ -126,13 +126,14 @@ class NoticeViewSet(viewsets.ModelViewSet):
         elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY']:
             # Staff see notices for their store, notices targeting them, or global ones
             store = user.employed_store
-            if not store:
-                store = Store.objects.first()
-            return Notice.objects.filter(
-                Q(store=store) | 
-                Q(target_user=user) | 
-                Q(store__isnull=True)
-            )
+            if store:
+                return Notice.objects.filter(
+                    Q(store=store) | 
+                    Q(target_user=user) | 
+                    Q(store__isnull=True)
+                )
+            else:
+                return Notice.objects.filter(Q(target_user=user) | Q(store__isnull=True))
         
         # Customers/Other only see global or specific targets
         return Notice.objects.filter(Q(target_user=user) | Q(store__isnull=True))
@@ -304,9 +305,9 @@ class StoreViewSet(viewsets.ModelViewSet):
         if not store and (user.role in ['ADMIN', 'SUPERUSER'] or user.is_superuser):
             store = Store.objects.filter(is_active=True).first()
             
-        # 4. Fallback for staff with no employed_store (Local/Test helper)
+        # 4. Fallback for staff with no employed_store (Return 404 to avoid data leak)
         if not store and user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY']:
-            store = Store.objects.filter(is_active=True).first()
+            return Response({"error": "You are not currently linked to any store. Please contact an administrator."}, status=404)
             
         if store:
             serializer = self.get_serializer(store)
