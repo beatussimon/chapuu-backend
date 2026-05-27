@@ -50,7 +50,7 @@ class OrderViewSet(viewsets.ModelViewSet):
             ])
             if store_id:
                 qs = qs.filter(store_id=store_id)
-            return qs
+            return qs.order_by('created_at')
 
         # Authenticated Queryset
         if user.role in ['ADMIN', 'SUPERUSER'] or user.is_superuser:
@@ -84,8 +84,17 @@ class OrderViewSet(viewsets.ModelViewSet):
         if is_locked in ['true', 'True', '1']:
             from django.db.models import Q
             queryset = queryset.filter(Q(is_locked=True) | Q(delivery_code_attempts__gt=0))
+
+        exclude_inactive = self.request.query_params.get('exclude_inactive')
+        if exclude_inactive in ['true', 'True', '1']:
+            queryset = queryset.exclude(state__in=[
+                Order.State.COMPLETED,
+                Order.State.CANCELLED,
+                Order.State.REFUNDED,
+                Order.State.EXPIRED
+            ])
             
-        return queryset
+        return queryset.order_by('-created_at')
 
 
     def perform_create(self, serializer):
