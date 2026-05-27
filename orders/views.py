@@ -62,16 +62,29 @@ class OrderViewSet(viewsets.ModelViewSet):
                 Q(store__owner=user) | Q(store=user.employed_store)
             )
         elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY']:
+            # Staff are strictly locked to their employed store
             store = user.employed_store
             if store:
                 queryset = Order.objects.select_related('review').filter(store=store)
             else:
                 queryset = Order.objects.none()
         else:
+            # Customers only see their own orders
             queryset = Order.objects.select_related('review').filter(customer=user)
 
+        # Apply strict store filter if provided (Mandatory for dashboard scoping)
         if store_id:
             queryset = queryset.filter(store_id=store_id)
+
+        # Apply inactive exclusion
+        exclude_inactive = self.request.query_params.get('exclude_inactive')
+        if exclude_inactive in ['true', 'True', '1']:
+            queryset = queryset.exclude(state__in=[
+                Order.State.COMPLETED,
+                Order.State.CANCELLED,
+                Order.State.REFUNDED,
+                Order.State.EXPIRED
+            ])
 
         search = self.request.query_params.get('search')
         if search:
@@ -85,15 +98,6 @@ class OrderViewSet(viewsets.ModelViewSet):
         if is_locked in ['true', 'True', '1']:
             from django.db.models import Q
             queryset = queryset.filter(Q(is_locked=True) | Q(delivery_code_attempts__gt=0))
-
-        exclude_inactive = self.request.query_params.get('exclude_inactive')
-        if exclude_inactive in ['true', 'True', '1']:
-            queryset = queryset.exclude(state__in=[
-                Order.State.COMPLETED,
-                Order.State.CANCELLED,
-                Order.State.REFUNDED,
-                Order.State.EXPIRED
-            ])
             
         return queryset.order_by('-created_at')
 
