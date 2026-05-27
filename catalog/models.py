@@ -21,8 +21,8 @@ class Product(models.Model):
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True)
     price = models.DecimalField(max_digits=10, decimal_places=2)
-    image = models.ImageField(upload_to='products/', null=True, blank=True)
-    image2 = models.ImageField(upload_to='products/', null=True, blank=True)
+    image = models.ImageField(upload_to='products/', max_length=255, null=True, blank=True)
+    image2 = models.ImageField(upload_to='products/', max_length=255, null=True, blank=True)
     
     requires_inventory = models.BooleanField(default=False)
     requires_kitchen = models.BooleanField(default=False)
