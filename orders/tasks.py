@@ -12,10 +12,10 @@ logger = logging.getLogger(__name__)
 def expire_unpaid_orders():
     """
     Finds orders that have been awaiting payment for more than 15 minutes
-    and transitions them to EXPIRED.
+    and transitions them to EXPIRED. Also cleans up ghost orders stuck in CREATED.
     """
     expiry_time = timezone.now() - timedelta(minutes=15)
-    expired_orders = Order.objects.filter(state=Order.State.AWAITING_PAYMENT, created_at__lte=expiry_time)
+    expired_orders = Order.objects.filter(state__in=[Order.State.AWAITING_PAYMENT, Order.State.CREATED], created_at__lte=expiry_time)
 
     for order in expired_orders:
         try:
