@@ -56,6 +56,25 @@ class StoreReviewSerializerTestCase(TestCase):
         self.assertIn('comment', serializer.errors)
         self.assertEqual(str(serializer.errors['comment'][0]), "Comment text is required when leaving a review.")
 
+    def test_serializer_includes_customer_name_and_profile_picture(self):
+        # Set up customer name
+        self.customer.first_name = "John"
+        self.customer.last_name = "Doe"
+        self.customer.save()
+        
+        review = StoreReview.objects.create(
+            store=self.store,
+            customer=self.customer,
+            rating=5,
+            comment="Awesome service!"
+        )
+        
+        serializer = StoreReviewSerializer(review)
+        data = serializer.data
+        
+        self.assertEqual(data['customer_name'], "John Doe")
+        self.assertIn('customer_profile_picture', data)
+
 
 class StoreReviewAPITests(TestCase):
     def setUp(self):

@@ -272,3 +272,29 @@ class CustomerSelfProfileUpdateTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn('employed_store', response.data)
 
+    def test_customer_can_upload_profile_picture(self):
+        """Customer can update/upload their profile picture"""
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from io import BytesIO
+        from PIL import Image
+
+        self.client.force_authenticate(user=self.customer)
+        url = '/api/auth/users/me/'
+        
+        # Create a simple in-memory image
+        bts = BytesIO()
+        img = Image.new('RGB', (100, 100), color='red')
+        img.save(bts, 'jpeg')
+        bts.seek(0)
+        img_file = SimpleUploadedFile("avatar.jpg", bts.read(), content_type="image/jpeg")
+
+        payload = {
+            'profile_picture': img_file
+        }
+        
+        response = self.client.patch(url, payload, format='multipart')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        
+        self.customer.refresh_from_db()
+        self.assertTrue(self.customer.profile_picture.name.endswith('.webp')) # compressed to webp
+
