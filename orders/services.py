@@ -191,6 +191,43 @@ class OrderStateMachine:
             logger = logging.getLogger(__name__)
             logger.error(f"Real-time broadcast failed for Order #{order.id}: {str(e)}")
 
+        # Send push notification for significant state changes to the customer
+        if order.customer_id and order.state in [Order.State.PREPARING, Order.State.READY, Order.State.OUT_FOR_DELIVERY]:
+            try:
+                from users.models import PushDevice
+                import requests
+                
+                devices = PushDevice.objects.filter(user_id=order.customer_id)
+                if devices.exists():
+                    messages = []
+                    
+                    title = f"Order Update: {order.store.name}"
+                    body = f"Your order is now {order.get_state_display()}."
+                    
+                    for device in devices:
+                        messages.append({
+                            'to': device.push_token,
+                            'sound': 'default',
+                            'title': title,
+                            'body': body,
+                            'data': {'orderId': order.id, 'state': order.state},
+                        })
+                    
+                    response = requests.post(
+                        'https://exp.host/--/api/v2/push/send',
+                        headers={
+                            'Accept': 'application/json',
+                            'Accept-encoding': 'gzip, deflate',
+                            'Content-Type': 'application/json',
+                        },
+                        json=messages,
+                        timeout=5
+                    )
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Failed to send push notification for Order #{order.id}: {str(e)}")
+
     @classmethod
     def emit_bulk_update(cls, order_ids: list, new_state: str, store_id: int):
         try:

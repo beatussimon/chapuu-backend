@@ -53,9 +53,16 @@ class BillboardStatsViewSet(viewsets.ViewSet):
                 
                 # Fetch products and score them - pre-filtered by nearby store IDs to prevent loading the entire database
                 nearby_store_ids = [s.id for s in scored_stores if getattr(s, 'distance_km', 999.0) <= 5.0]
-                products = list(Product.objects.select_related('store', 'stock').prefetch_related('recipe_ingredients__ingredient__stock').filter(is_active=True, store__is_active=True, store_id__in=nearby_store_ids))
-                # Exclude out-of-stock items
-                products = [p for p in products if p.check_stock_available(1)[0]]
+                products = list(Product.objects.select_related('store', 'stock') \
+                    .prefetch_related('recipe_ingredients__ingredient__stock') \
+                    .filter(
+                        is_active=True, 
+                        store__is_active=True, 
+                        store_id__in=nearby_store_ids
+                    ).filter(
+                        models.Q(requires_inventory=False) | models.Q(stock__quantity__gt=0)
+                    ))
+
                 # Add distance_km map
                 store_dist_map = {s.id: getattr(s, 'distance_km', None) for s in stores}
                 for p in products:
@@ -79,6 +86,7 @@ class BillboardStatsViewSet(viewsets.ViewSet):
                     
                 trending_products_data = []
                 for prod in trending_products:
+                    # Optimized aggregation: Count only completed orders
                     total_ordered = prod.order_items.filter(order__state=Order.State.COMPLETED).aggregate(total=Sum('quantity'))['total'] or 0
                     trending_products_data.append({
                         'id': prod.id,

@@ -35,16 +35,28 @@ class User(AbstractUser):
             self.policy_accepted_at = timezone.now()
             
         if self.profile_picture and hasattr(self.profile_picture, 'file'):
-            try:
-                from config.image_utils import compress_image
-                compressed = compress_image(self.profile_picture)
-                if compressed and compressed is not self.profile_picture:
-                    self.profile_picture = compressed
-            except Exception:
-                pass
+            from django.core.files.uploadedfile import UploadedFile
+            if isinstance(self.profile_picture.file, UploadedFile):
+                try:
+                    from config.image_utils import compress_image
+                    compressed = compress_image(self.profile_picture)
+                    if compressed and compressed is not self.profile_picture:
+                        self.profile_picture = compressed
+                except Exception:
+                    pass
 
         super().save(*args, **kwargs)
 
     def __str__(self):
         return f"{self.username} ({self.role})"
+
+class PushDevice(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='push_devices')
+    push_token = models.CharField(max_length=255, unique=True)
+    platform = models.CharField(max_length=20, blank=True, null=True) # e.g. 'ios', 'android'
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.user.username} - {self.platform} ({self.push_token[:10]}...)"
 

@@ -137,7 +137,7 @@ class CurrentUserView(views.APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        serializer = UserSerializer(request.user)
+        serializer = UserSerializer(request.user, context={'request': request})
         return Response(serializer.data)
 
     def patch(self, request):
@@ -145,3 +145,34 @@ class CurrentUserView(views.APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+from users.models import PushDevice
+
+class PushDeviceRegisterView(views.APIView):
+    """
+    Endpoint to register or deregister Expo push tokens.
+    POST /api/auth/devices/ - registers token
+    DELETE /api/auth/devices/ - deregisters token
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        token = request.data.get('push_token')
+        platform = request.data.get('platform')
+
+        if not token:
+            return Response({'error': 'push_token is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        device, created = PushDevice.objects.update_or_create(
+            push_token=token,
+            defaults={'user': request.user, 'platform': platform}
+        )
+        return Response({'status': 'registered', 'created': created}, status=status.HTTP_201_CREATED)
+
+    def delete(self, request):
+        token = request.data.get('push_token')
+        if not token:
+            return Response({'error': 'push_token is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        deleted, _ = PushDevice.objects.filter(user=request.user, push_token=token).delete()
+        return Response({'status': 'deregistered', 'deleted': deleted}, status=status.HTTP_200_OK)

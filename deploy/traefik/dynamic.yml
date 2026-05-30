@@ -13,7 +13,7 @@ http:
   routers:
     # We apply compression to all websecure traffic
     api-router:
-      rule: "Host(`api.pasifiq.store`)"
+      rule: "Host(`${TRAEFIK_DOMAIN}`, `www.${TRAEFIK_DOMAIN}`) && PathPrefix(`/api`)"
       service: backend
       entryPoints:
         - websecure

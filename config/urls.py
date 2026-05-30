@@ -23,7 +23,7 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
 from catalog.views import ProductViewSet, CategoryViewSet, InventoryStockViewSet, IngredientViewSet, RecipeIngredientViewSet
-from users.views import UserViewSet, CustomerRegistrationView, CurrentUserView, StaffManagementViewSet
+from users.views import UserViewSet, CustomerRegistrationView, CurrentUserView, StaffManagementViewSet, PushDeviceRegisterView
 from orders.views import OrderViewSet
 from catalog.stats_views import BillboardStatsViewSet
 from catalog.analytics_seller_views import SellerAnalyticsViewSet
@@ -95,6 +95,7 @@ urlpatterns = [
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/register/', CustomerRegistrationView.as_view(), name='api_register'),
     path('api/auth/users/me/', CurrentUserView.as_view(), name='current_user'),
+    path('api/auth/devices/', PushDeviceRegisterView.as_view(), name='auth_devices'),
     path('api/search/', UniversalSearchView.as_view(), name='universal-search'),
     path('api/health/', health_check, name='health'),
     path('api/billing/', include('billing.urls')),
