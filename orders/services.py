@@ -64,14 +64,19 @@ class OrderStateMachine:
                         loyalty_points=F('loyalty_points') + int(locked_order.total_amount)
                     )
                 
-                # Auto-ready items that do not require kitchen preparation
-                locked_order.items.filter(product__requires_kitchen=False).update(is_ready=True)
-                
-                # If there are no items requiring kitchen prep, transition state directly to READY
-                has_kitchen_items = locked_order.items.filter(product__requires_kitchen=True).exists()
-                if not has_kitchen_items:
-                    locked_order.state = Order.State.READY
-                    new_state = Order.State.READY
+                if locked_order.store.store_type == 'SHOP':
+                    # Shop workflow: skip kitchen queue, land directly in PREPARING
+                    locked_order.state = Order.State.PREPARING
+                    new_state = Order.State.PREPARING
+                else:
+                    # Restaurant workflow: Auto-ready non-kitchen items
+                    locked_order.items.filter(product__requires_kitchen=False).update(is_ready=True)
+                    
+                    # If there are no items requiring kitchen prep, transition state directly to READY
+                    has_kitchen_items = locked_order.items.filter(product__requires_kitchen=True).exists()
+                    if not has_kitchen_items:
+                        locked_order.state = Order.State.READY
+                        new_state = Order.State.READY
 
             update_fields = ['state', 'updated_at']
 
@@ -114,7 +119,7 @@ class OrderStateMachine:
 
 
 
-            # Accrue 3% platform commission on order completion (Waived to 0.00 during Free Trial)
+            # Accrue platform commission on order completion (Waived to 0.00 during Free Trial)
             if new_state == Order.State.COMPLETED:
                 from billing.models import CommissionLedgerEntry
                 from decimal import Decimal
@@ -125,12 +130,15 @@ class OrderStateMachine:
                 if store.free_trial_start and store.free_trial_end:
                     is_free_trial = store.free_trial_start <= timezone.now() <= store.free_trial_end
                     
-                commission_amount = Decimal('0.00') if is_free_trial else (locked_order.total_amount * Decimal('0.03'))
+                # Dynamic commission rate: 7% for RESTAURANT, 2% for SHOP
+                rate = Decimal('0.07') if store.store_type == 'RESTAURANT' else Decimal('0.02')
+                commission_amount = Decimal('0.00') if is_free_trial else (locked_order.total_amount * rate)
                 
                 CommissionLedgerEntry.objects.create(
                     order=locked_order,
                     store=store,
                     order_amount=locked_order.total_amount,
+                    commission_rate=rate * 100,
                     commission_amount=commission_amount,
                     entry_type=CommissionLedgerEntry.EntryType.COMMISSION
                 )

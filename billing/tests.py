@@ -143,8 +143,10 @@ class BillingAndVerificationTests(TestCase):
         
         # Verify 3% platform commission was created
         ledger = CommissionLedgerEntry.objects.filter(order=order).first()
+        # Verify 7% platform commission was created
+        ledger = CommissionLedgerEntry.objects.filter(order=order).first()
         self.assertIsNotNone(ledger)
-        self.assertEqual(ledger.commission_amount, Decimal('3.00')) # 100 * 0.03
+        self.assertEqual(ledger.commission_amount, Decimal('7.00')) # 100 * 0.07
 
     def test_staff_manual_verify_override(self):
         """
@@ -152,7 +154,7 @@ class BillingAndVerificationTests(TestCase):
         - Order state is transitioned to COMPLETED
         - Lock is resolved (is_locked = False, attempts = 0)
         - is_suspicious is kept permanently set to True for audit log
-        - 3% platform commission is correctly collected
+        - 7% platform commission is correctly collected
         """
         order = Order.objects.create(
             store=self.store,
@@ -184,10 +186,10 @@ class BillingAndVerificationTests(TestCase):
         self.assertEqual(order.delivery_code_attempts, 0)
         self.assertTrue(order.is_suspicious)  # Remains True for security auditing
 
-        # Verify platform cut of 3% is correctly logged
+        # Verify platform cut of 7% is correctly logged
         ledger = CommissionLedgerEntry.objects.filter(order=order).first()
         self.assertIsNotNone(ledger)
-        self.assertEqual(ledger.commission_amount, Decimal('6.00')) # 200 * 0.03
+        self.assertEqual(ledger.commission_amount, Decimal('14.00')) # 200 * 0.07
 
 
     def test_refund_completed_orders_blocked(self):
@@ -207,9 +209,9 @@ class BillingAndVerificationTests(TestCase):
     def test_cancellation_fee_scheduled_order(self):
         """
         Verify that a customer cancelling a PAID scheduled order triggers:
-        - 6% total fee split
-        - 3% to platform commission
-        - 94% refund recorded
+        - 10% total cancellation fee applied
+        - 7% to platform commission
+        - 90% refunded back to the customer
         """
         order = Order.objects.create(
             store=self.store,
@@ -234,12 +236,12 @@ class BillingAndVerificationTests(TestCase):
         order.refresh_from_db()
         self.assertEqual(order.state, Order.State.CANCELLED)
         
-        # Verify platform 3% fee recorded
+        # Verify platform 7% fee recorded
         ledger = CommissionLedgerEntry.objects.filter(order=order, entry_type=CommissionLedgerEntry.EntryType.CANCELLATION_FEE).first()
         self.assertIsNotNone(ledger)
-        self.assertEqual(ledger.commission_amount, Decimal('6.00')) # 3% of 200
+        self.assertEqual(ledger.commission_amount, Decimal('14.00')) # 7% of 200
         
-        # Verify 94% refund recorded
+        # Verify 90% refund recorded
         refund = Refund.objects.filter(payment__order=order).first()
         self.assertIsNotNone(refund)
-        self.assertEqual(refund.amount, Decimal('188.00')) # 94% of 200
+        self.assertEqual(refund.amount, Decimal('180.00')) # 90% of 200

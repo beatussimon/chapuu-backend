@@ -4,13 +4,13 @@ from decimal import Decimal
 
 class CommissionLedgerEntry(models.Model):
     class EntryType(models.TextChoices):
-        COMMISSION = 'COMMISSION', 'Fulfillment Commission (3%)'
-        CANCELLATION_FEE = 'CANCELLATION_FEE', 'Scheduled Cancellation Platform Share (3%)'
+        COMMISSION = 'COMMISSION', 'Fulfillment Commission'
+        CANCELLATION_FEE = 'CANCELLATION_FEE', 'Scheduled Cancellation Platform Share'
 
     order = models.ForeignKey('orders.Order', on_delete=models.PROTECT, related_name='commission_entries')
     store = models.ForeignKey('stores.Store', on_delete=models.PROTECT, related_name='commission_entries')
     order_amount = models.DecimalField(max_digits=12, decimal_places=2)
-    commission_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('3.00'))
+    commission_rate = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('0.00'))
     commission_amount = models.DecimalField(max_digits=12, decimal_places=2)
     entry_type = models.CharField(max_length=30, choices=EntryType.choices, default=EntryType.COMMISSION)
     created_at = models.DateTimeField(auto_now_add=True)

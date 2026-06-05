@@ -168,6 +168,16 @@ class StoreSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({
                         "latitude": "Store location coordinates are already registered and locked. Please contact support to request updates."
                     })
+            
+            # Prevent non-superusers from modifying free trial fields
+            is_superuser = user.role == 'SUPERUSER' or user.is_superuser
+            if not is_superuser:
+                trial_start_changing = 'free_trial_start' in attrs and attrs['free_trial_start'] != self.instance.free_trial_start
+                trial_end_changing = 'free_trial_end' in attrs and attrs['free_trial_end'] != self.instance.free_trial_end
+                if trial_start_changing or trial_end_changing:
+                    raise serializers.ValidationError({
+                        "free_trial_start": "Only SUPERUSER accounts can modify free trial periods."
+                    })
         return attrs
 
 class TableSerializer(serializers.ModelSerializer):

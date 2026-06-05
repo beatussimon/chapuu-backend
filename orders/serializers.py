@@ -102,6 +102,12 @@ class OrderSerializer(serializers.ModelSerializer):
                 "payment_message": "Transaction ID or proof of payment is required."
             })
         
+        if fulfillment_mode == Order.FulfillmentMode.DELIVERY:
+            if not data.get('delivery_latitude') or not data.get('delivery_longitude'):
+                raise serializers.ValidationError({
+                    "delivery_location": "GPS coordinates are mandatory for delivery orders. Please ensure location access is enabled during checkout."
+                })
+
         if is_instant:
             # Cannot pay on spot for a delivery order
             if fulfillment_mode == Order.FulfillmentMode.DELIVERY:

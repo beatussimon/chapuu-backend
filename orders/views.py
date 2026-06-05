@@ -128,8 +128,8 @@ class OrderViewSet(viewsets.ModelViewSet):
                 # Route based on store type or auto-ready skip
                 if order.state == Order.State.READY:
                     pass
-                elif order.store.store_type == 'SHOP':
-                    order = OrderStateMachine.transition_order(order, Order.State.READY, notes="Shop walk-in — instant ready.", performed_by=user)
+                elif order.state == Order.State.PREPARING and order.store.store_type == 'SHOP':
+                    pass
                 else:
                     KitchenEngine.enqueue_order(order)
                     order = OrderStateMachine.transition_order(order, Order.State.QUEUED, notes="Walk-in order queued.", performed_by=user)
@@ -165,12 +165,16 @@ class OrderViewSet(viewsets.ModelViewSet):
                 if store.free_trial_start and store.free_trial_end:
                     is_free_trial = store.free_trial_start <= timezone.now() <= store.free_trial_end
                 
-                # Calculate 6% cancellation fee (waived to 0% platform share during trial)
-                platform_share = Decimal('0.00') if is_free_trial else (order.total_amount * Decimal('0.03'))
-                refund_amount = order.total_amount if is_free_trial else (order.total_amount * Decimal('0.94'))
+                # Calculate cancellation fee (waived to 0% platform share during trial)
+                rate = Decimal('0.07') if store.store_type == 'RESTAURANT' else Decimal('0.02')
+                platform_share = Decimal('0.00') if is_free_trial else (order.total_amount * rate)
+                
+                penalty_rate = rate + Decimal('0.03')
+                refund_amount = order.total_amount if is_free_trial else (order.total_amount * (Decimal('1.00') - penalty_rate))
+                penalty_percent = int(penalty_rate * 100)
                 
                 # Cancel the order first
-                OrderStateMachine.transition_order(order, Order.State.CANCELLED, notes="Scheduled order cancelled by customer. 6% fee applied (Waived under trial)." if is_free_trial else "Scheduled order cancelled by customer. 6% fee applied.", performed_by=request.user)
+                OrderStateMachine.transition_order(order, Order.State.CANCELLED, notes=f"Scheduled order cancelled by customer. {penalty_percent}% fee applied (Waived under trial)." if is_free_trial else f"Scheduled order cancelled by customer. {penalty_percent}% fee applied.", performed_by=request.user)
                 
                 # Record platform's share in the commission ledger
                 CommissionLedgerEntry.objects.create(
@@ -189,11 +193,11 @@ class OrderViewSet(viewsets.ModelViewSet):
                     Refund.objects.create(
                         payment=payment,
                         amount=refund_amount,
-                        reason="Scheduled order customer cancellation. 6% cancellation fee applied.",
+                        reason=f"Scheduled order customer cancellation. {penalty_percent}% cancellation fee applied.",
                         is_successful=False
                     )
                 
-                return Response({"status": "Scheduled order cancelled. 6% cancellation fee applied. 94% refund recorded."})
+                return Response({"status": f"Scheduled order cancelled. {penalty_percent}% cancellation fee applied. {100 - penalty_percent}% refund recorded."})
 
             OrderStateMachine.transition_order(order, Order.State.CANCELLED, notes="Cancelled via API.", performed_by=request.user)
             return Response({"status": "order cancelled"})
@@ -550,9 +554,8 @@ class OrderViewSet(viewsets.ModelViewSet):
             if new_state in [Order.State.PAID, Order.State.QUEUED]:
                 if updated_order.state == Order.State.READY:
                     pass
-                elif updated_order.store.store_type == 'SHOP':
-                    if updated_order.state == Order.State.PAID:
-                        updated_order = OrderStateMachine.transition_order(updated_order, Order.State.READY, notes="Shop kitchen skip.", performed_by=user)
+                elif updated_order.state == Order.State.PREPARING and updated_order.store.store_type == 'SHOP':
+                    pass
                 else:
                     KitchenEngine.enqueue_order(updated_order)
                 
@@ -607,10 +610,10 @@ class OrderViewSet(viewsets.ModelViewSet):
                     OrderEventLog.objects.create(order=locked_order, previous_state=current_state, new_state=new_state, notes="Bulk API advance")
 
                     if new_state in [Order.State.PAID, Order.State.QUEUED]:
-                        if locked_order.store.store_type == 'SHOP':
-                            if locked_order.state == Order.State.PAID:
-                                locked_order.state = Order.State.READY
-                                locked_order.save(update_fields=['state', 'updated_at'])
+                        if locked_order.state == Order.State.READY:
+                            pass
+                        elif locked_order.state == Order.State.PREPARING and locked_order.store.store_type == 'SHOP':
+                            pass
                         else:
                             KitchenEngine.enqueue_order(locked_order)
 
