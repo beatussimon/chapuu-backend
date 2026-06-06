@@ -1,9 +1,16 @@
-from rest_framework import viewsets, permissions
+from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db.models import Q
-from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod, SystemSupportConfig, StoreGalleryImage, GlobalPaymentMethod
-from stores.serializers import StoreSerializer, KitchenSettingsSerializer, AdvertisementSerializer, CurrencyConfigSerializer, TableSerializer, NoticeSerializer, StorePaymentMethodSerializer, SystemSupportConfigSerializer, StoreGalleryImageSerializer, GlobalPaymentMethodSerializer
+from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod, SystemSupportConfig, StoreGalleryImage, GlobalPaymentMethod, SellerApplication, ApplicationDocument
+from stores.serializers import StoreSerializer, KitchenSettingsSerializer, AdvertisementSerializer, CurrencyConfigSerializer, TableSerializer, NoticeSerializer, StorePaymentMethodSerializer, SystemSupportConfigSerializer, StoreGalleryImageSerializer, GlobalPaymentMethodSerializer, SellerApplicationSerializer, SellerApplicationListSerializer, ApplicantLookupSerializer, CustomerApplicationStatusSerializer, ApplicationDocumentSerializer
+from users.permissions import IsChapuuStaffOrAdmin
+from django.utils import timezone
+from datetime import timedelta
+from django.contrib.auth import get_user_model
+from django.db import transaction
+
+User = get_user_model()
 from stores.services import KitchenEngine
 from reviews.models import StoreReview
 from reviews.serializers import StoreReviewSerializer
@@ -121,25 +128,42 @@ class NoticeViewSet(viewsets.ModelViewSet):
         
         if user.role in ['ADMIN', 'SUPERUSER'] or user.is_superuser:
             return Notice.objects.all()
-        elif user.role == 'SELLER':
-            return Notice.objects.filter(Q(store__owner=user) | Q(store__isnull=True))
+            
+        # 1. Truly Global: No store, no specific target
+        global_notices = Q(store__isnull=True, target_user__isnull=True)
+        # 2. Specifically Targeted: Explicitly for this user
+        targeted_notices = Q(target_user=user)
+        
+        if user.role == 'SELLER':
+            # 3. Store Broadcast: For all staff in the owner's store
+            store_notices = Q(store__owner=user, target_user__isnull=True)
+            return Notice.objects.filter(global_notices | targeted_notices | store_notices).exclude(cleared_by=user)
+            
         elif user.role in ['CHEF', 'ACCOUNTANT', 'DELIVERY']:
-            # Staff see notices for their store, notices targeting them, or global ones
             store = user.employed_store
             if store:
-                return Notice.objects.filter(
-                    Q(store=store) | 
-                    Q(target_user=user) | 
-                    Q(store__isnull=True)
-                )
+                store_notices = Q(store=store, target_user__isnull=True)
+                return Notice.objects.filter(global_notices | targeted_notices | store_notices).exclude(cleared_by=user)
             else:
-                return Notice.objects.filter(Q(target_user=user) | Q(store__isnull=True))
+                return Notice.objects.filter(global_notices | targeted_notices).exclude(cleared_by=user)
         
         # Customers/Other only see global or specific targets
-        return Notice.objects.filter(Q(target_user=user) | Q(store__isnull=True))
+        return Notice.objects.filter(global_notices | targeted_notices).exclude(cleared_by=user)
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
+
+    def destroy(self, request, *args, **kwargs):
+        notice = self.get_object()
+        user = request.user
+        
+        # Admins have the power to actually permanently delete notices
+        if user.role in ['ADMIN', 'SUPERUSER'] or user.is_superuser:
+            return super().destroy(request, *args, **kwargs)
+            
+        # For everyone else, "Deleting" simply adds them to `cleared_by`
+        notice.cleared_by.add(user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def mark_as_read(self, request, pk=None):
@@ -427,3 +451,216 @@ class SystemSupportConfigViewSet(viewsets.ViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
+
+class SellerApplicationViewSet(viewsets.ModelViewSet):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.role in ['ADMIN', 'SUPERUSER'] or user.is_superuser:
+            return SellerApplication.objects.all()
+        elif user.role == 'CHAPUUSTAFF':
+            return SellerApplication.objects.filter(submitted_by=user)
+        return SellerApplication.objects.filter(applicant=user)
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return SellerApplicationListSerializer
+        return SellerApplicationSerializer
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        if user.role not in ['CHAPUUSTAFF', 'ADMIN', 'SUPERUSER'] and not user.is_superuser:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only Chapuu Staff and Admins can submit applications.")
+            
+        applicant = serializer.validated_data.get('applicant')
+        if applicant.role == 'SELLER':
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError("This user is already a seller.")
+            
+        if SellerApplication.objects.filter(applicant=applicant, status__in=['AWAITING_SIGNATURE', 'PENDING_REVIEW', 'UNDER_REVIEW']).exists():
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError("This user already has an active application.")
+            
+        serializer.save(submitted_by=user, status='AWAITING_SIGNATURE')
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        user = self.request.user
+        if user.role == 'CHAPUUSTAFF':
+            if instance.submitted_by != user:
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("You can only edit your own submissions.")
+            if instance.status != 'REJECTED':
+                from rest_framework.exceptions import PermissionDenied
+                raise PermissionDenied("Only rejected applications can be edited and re-submitted.")
+            serializer.save(status='AWAITING_SIGNATURE', rejection_reason='')
+        else:
+            serializer.save()
+
+    @action(detail=False, methods=['get'], permission_classes=[IsChapuuStaffOrAdmin])
+    def lookup_user(self, request):
+        username = request.query_params.get('q')
+        if not username:
+            return Response({"error": "Username is required"}, status=400)
+        try:
+            user = User.objects.get(username=username)
+            serializer = ApplicantLookupSerializer(user)
+            return Response(serializer.data)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=404)
+
+    @action(detail=False, methods=['get'])
+    def my_application(self, request):
+        user = request.user
+        if user.role == 'SELLER':
+            # Optionally show approved application
+            app = SellerApplication.objects.filter(applicant=user, status='APPROVED').order_by('-created_at').first()
+        else:
+            app = SellerApplication.objects.filter(applicant=user).order_by('-created_at').first()
+            
+        if not app:
+            return Response({"error": "No application found"}, status=404)
+        serializer = CustomerApplicationStatusSerializer(app)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def sign(self, request, pk=None):
+        app = self.get_object()
+        if request.user != app.applicant:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only sign your own application.")
+            
+        if app.status != 'AWAITING_SIGNATURE':
+            return Response({"error": "Application is not awaiting signature."}, status=400)
+            
+        signature = request.data.get('digital_signature')
+        if not signature:
+            return Response({"error": "Digital signature is required."}, status=400)
+            
+        app.digital_signature = signature
+        app.signed_at = timezone.now()
+        app.status = 'PENDING_REVIEW'
+        app.save(update_fields=['digital_signature', 'signed_at', 'status'])
+        
+        return Response({"status": "Signed successfully"})
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    def mark_reviewing(self, request, pk=None):
+        app = self.get_object()
+        if app.status != 'PENDING_REVIEW':
+            return Response({"error": "Application must be PENDING_REVIEW"}, status=400)
+        app.status = 'UNDER_REVIEW'
+        app.save(update_fields=['status'])
+        Notice.objects.create(
+            target_user=app.applicant,
+            created_by=request.user,
+            title='Your Seller Application is Under Review',
+            message=f'Our team is currently reviewing your application for {app.store_name}.'
+        )
+        return Response({"status": "Marked under review"})
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    def reject(self, request, pk=None):
+        app = self.get_object()
+        if app.status in ['APPROVED', 'REJECTED']:
+            return Response({"error": "Application is already decided"}, status=400)
+            
+        reason = request.data.get('rejection_reason', 'No reason provided.')
+        app.status = 'REJECTED'
+        app.rejection_reason = reason
+        app.reviewed_by = request.user
+        app.save(update_fields=['status', 'rejection_reason', 'reviewed_by'])
+        
+        Notice.objects.create(
+            target_user=app.applicant,
+            created_by=request.user,
+            title='Seller Application Action Required',
+            message=f'Your application for {app.store_name} needs corrections. Reason: {reason}'
+        )
+        return Response({"status": "Rejected"})
+
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAdminUser])
+    @transaction.atomic
+    def approve(self, request, pk=None):
+        app = self.get_object()
+        if app.status == 'APPROVED':
+            return Response({"error": "Already approved"}, status=400)
+        if not app.digital_signature:
+            return Response({"error": "Cannot approve without digital signature"}, status=400)
+            
+        store = Store.objects.create(
+            owner=app.applicant,
+            name=app.store_name,
+            store_type=app.store_type,
+            location=app.location,
+            latitude=app.latitude,
+            longitude=app.longitude,
+            directions=app.directions,
+            contact_phone=app.contact_phone,
+            contact_email=app.contact_email,
+            is_active=True,
+            free_trial_start=timezone.now() if app.trial_period_days > 0 else None,
+            free_trial_end=timezone.now() + timedelta(days=app.trial_period_days) if app.trial_period_days > 0 else None
+        )
+        
+        first_photo = app.venue_photos.first()
+        if first_photo:
+            store.image = first_photo.image
+            store.save(update_fields=['image'])
+            
+        applicant = app.applicant
+        if applicant.role == 'CUSTOMER':
+            applicant.role = 'SELLER'
+            applicant.save(update_fields=['role'])
+            
+        app.status = 'APPROVED'
+        app.reviewed_by = request.user
+        app.created_store = store
+        app.save(update_fields=['status', 'reviewed_by', 'created_store'])
+        
+        Notice.objects.create(
+            target_user=applicant,
+            created_by=request.user,
+            store=store,
+            title='🎉 Your Seller Application Has Been Approved!',
+            message=f'Congratulations! Your store "{store.name}" is now live on Chapuu. Log in to access your Seller Dashboard.'
+        )
+        
+        return Response({"status": "approved", "store_id": store.id})
+
+    @action(detail=True, methods=['post'], permission_classes=[IsChapuuStaffOrAdmin])
+    def upload_photos(self, request, pk=None):
+        app = self.get_object()
+        user = request.user
+        if user.role == 'CHAPUUSTAFF' and app.submitted_by != user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only upload photos for your own submissions.")
+            
+        if app.venue_photos.count() >= 5:
+            return Response({"error": "Maximum 5 venue photos allowed"}, status=400)
+            
+        image = request.FILES.get('image')
+        caption = request.data.get('caption', '')
+        if not image:
+            return Response({"error": "Image file is required"}, status=400)
+            
+        doc = ApplicationDocument.objects.create(application=app, image=image, caption=caption)
+        serializer = ApplicationDocumentSerializer(doc, context={'request': request})
+        return Response(serializer.data, status=201)
+
+    @action(detail=True, methods=['delete'], url_path='delete-photo/(?P<photo_id>[^/.]+)', permission_classes=[IsChapuuStaffOrAdmin])
+    def delete_photo(self, request, photo_id, pk=None):
+        app = self.get_object()
+        user = request.user
+        if user.role == 'CHAPUUSTAFF' and app.submitted_by != user:
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("You can only delete photos for your own submissions.")
+            
+        try:
+            doc = ApplicationDocument.objects.get(id=photo_id, application=app)
+            doc.delete()
+            return Response({"status": "deleted"}, status=204)
+        except ApplicationDocument.DoesNotExist:
+            return Response({"error": "Photo not found"}, status=404)

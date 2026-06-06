@@ -7,6 +7,7 @@ class User(AbstractUser):
         SELLER = 'SELLER', 'Seller'
         ADMIN = 'ADMIN', 'Admin'
         SUPERUSER = 'SUPERUSER', 'Superuser'
+        CHAPUUSTAFF = 'CHAPUUSTAFF', 'Chapuu Staff'
         CHEF = 'CHEF', 'Chef'
         DELIVERY = 'DELIVERY', 'Delivery Driver'
         ACCOUNTANT = 'ACCOUNTANT', 'Accountant'
@@ -28,7 +29,7 @@ class User(AbstractUser):
             self.role = self.Role.SUPERUSER
             self.is_superuser = True
             self.is_staff = True
-        elif self.role == self.Role.ADMIN:
+        elif self.role in [self.Role.ADMIN, self.Role.CHAPUUSTAFF]:
             self.is_staff = True
             
         if self.accepted_liability_policy and not self.policy_accepted_at:

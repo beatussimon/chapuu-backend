@@ -179,7 +179,11 @@ class Notice(models.Model):
     target_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, null=True, blank=True, related_name='notices_received', help_text="If null, goes to all staff in the store/global.")
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notices_sent')
     read_by = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='read_notices', blank=True)
+    cleared_by = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='cleared_notices', blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
 
     def __str__(self):
         return f"Notice: {self.title}"
@@ -229,3 +233,81 @@ class StoreGalleryImage(models.Model):
 
     def __str__(self):
         return f"Gallery Image for {self.store.name} ({self.id})"
+
+
+class SellerApplication(models.Model):
+    class Status(models.TextChoices):
+        AWAITING_SIGNATURE = 'AWAITING_SIGNATURE', 'Awaiting Signature'
+        PENDING_REVIEW = 'PENDING_REVIEW', 'Pending Review'
+        UNDER_REVIEW = 'UNDER_REVIEW', 'Under Review'
+        APPROVED = 'APPROVED', 'Approved'
+        REJECTED = 'REJECTED', 'Rejected'
+
+    # Who is applying and who submitted it
+    applicant = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='seller_applications')
+    submitted_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='submitted_applications')
+
+    # Proposed store details
+    store_name = models.CharField(max_length=255)
+    store_type = models.CharField(max_length=20, choices=Store.StoreType.choices, default=Store.StoreType.RESTAURANT)
+    location = models.TextField()
+    latitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True)
+    longitude = models.DecimalField(max_digits=10, decimal_places=7, null=True, blank=True)
+    directions = models.TextField(blank=True, default='')
+    contact_phone = models.CharField(max_length=20, blank=True, default='')
+    contact_email = models.EmailField(blank=True, default='')
+
+    # Digital Signature data (captured from canvas as Base64 image)
+    digital_signature = models.TextField(blank=True, default='')
+    signed_at = models.DateTimeField(null=True, blank=True)
+
+    # Review workflow
+    status = models.CharField(max_length=25, choices=Status.choices, default=Status.AWAITING_SIGNATURE)
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='reviewed_applications')
+    admin_notes = models.TextField(blank=True, default='')
+    rejection_reason = models.TextField(blank=True, default='')
+    trial_period_days = models.IntegerField(default=0, help_text="Number of free trial days (0 means no trial)")
+    
+    # Staff Evaluation Checklist
+    estimated_customer_base = models.CharField(max_length=100, blank=True, default='')
+    class ServiceQualityTier(models.TextChoices):
+        LOW = 'LOW', 'Low'
+        MID = 'MID', 'Mid'
+        HIGH = 'HIGH', 'High'
+        SUPER = 'SUPER', 'Super'
+        PERFECT = 'PERFECT', 'Perfect'
+    service_quality_rating = models.CharField(max_length=10, choices=ServiceQualityTier.choices, default=ServiceQualityTier.MID)
+    staff_notes = models.TextField(blank=True, default='', help_text="Additional explanation and notes from staff.")
+
+    # Link to created store (populated on approval)
+    created_store = models.OneToOneField('Store', on_delete=models.SET_NULL, null=True, blank=True, related_name='source_application')
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Application #{self.id} — {self.store_name} by @{self.applicant.username} ({self.status})"
+
+
+class ApplicationDocument(models.Model):
+    application = models.ForeignKey(SellerApplication, on_delete=models.CASCADE, related_name='venue_photos')
+    image = models.ImageField(upload_to='applications/venue_photos/')
+    caption = models.CharField(max_length=100, blank=True, default='')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        # Auto-compress to WebP
+        if self.image and hasattr(self.image, 'file'):
+            try:
+                compressed = compress_image(self.image)
+                if compressed and compressed is not self.image:
+                    self.image = compressed
+            except Exception:
+                pass
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Photo for Application #{self.application_id}"

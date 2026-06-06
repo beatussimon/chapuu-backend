@@ -24,3 +24,11 @@ class IsPlatformAdminOrReadOnly(permissions.BasePermission):
         if request.method in permissions.SAFE_METHODS:
             return True
         return bool(request.user.role in ['ADMIN', 'SUPERUSER'] or request.user.is_superuser)
+
+
+class IsChapuuStaffOrAdmin(permissions.BasePermission):
+    """
+    Grants access to CHAPUUSTAFF, ADMIN, and SUPERUSER roles.
+    """
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and (request.user.role in ['CHAPUUSTAFF', 'ADMIN', 'SUPERUSER'] or request.user.is_superuser))

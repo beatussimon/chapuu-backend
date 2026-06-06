@@ -1,5 +1,8 @@
 from rest_framework import serializers
-from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod, SystemSupportConfig, StoreGalleryImage, GlobalPaymentMethod
+from stores.models import Store, KitchenSettings, Advertisement, CurrencyConfig, Table, Notice, StorePaymentMethod, SystemSupportConfig, StoreGalleryImage, GlobalPaymentMethod, SellerApplication, ApplicationDocument
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
 
 class KitchenSettingsSerializer(serializers.ModelSerializer):
     class Meta:
@@ -215,4 +218,73 @@ class SystemSupportConfigSerializer(serializers.ModelSerializer):
     class Meta:
         model = SystemSupportConfig
         fields = '__all__'
+
+class ApplicantLookupSerializer(serializers.ModelSerializer):
+    has_active_application = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'first_name', 'last_name', 'email', 'phone_number', 'role', 'has_active_application']
+
+    def get_has_active_application(self, obj):
+        return obj.seller_applications.filter(status__in=['AWAITING_SIGNATURE', 'PENDING_REVIEW', 'UNDER_REVIEW']).exists()
+
+class ApplicationDocumentSerializer(serializers.ModelSerializer):
+    image_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ApplicationDocument
+        fields = ['id', 'image', 'image_url', 'caption', 'uploaded_at']
+
+    def get_image_url(self, obj):
+        if obj.image:
+            request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(obj.image.url)
+            return obj.image.url
+        return None
+
+class SellerApplicationSerializer(serializers.ModelSerializer):
+    venue_photos = ApplicationDocumentSerializer(many=True, read_only=True)
+    applicant_username = serializers.CharField(source='applicant.username', read_only=True)
+    applicant_name = serializers.SerializerMethodField()
+    submitted_by_username = serializers.CharField(source='submitted_by.username', read_only=True)
+
+    class Meta:
+        model = SellerApplication
+        fields = '__all__'
+        read_only_fields = ['status', 'reviewed_by', 'admin_notes', 'rejection_reason', 'created_store', 'digital_signature', 'signed_at']
+
+    def get_applicant_name(self, obj):
+        return f"{obj.applicant.first_name} {obj.applicant.last_name}".strip()
+
+class SellerApplicationListSerializer(serializers.ModelSerializer):
+    applicant_username = serializers.CharField(source='applicant.username', read_only=True)
+    applicant_name = serializers.SerializerMethodField()
+    submitted_by_username = serializers.CharField(source='submitted_by.username', read_only=True)
+    venue_photos_count = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SellerApplication
+        fields = [
+            'id', 'applicant_username', 'applicant_name', 'store_name', 'store_type', 
+            'status', 'submitted_by_username', 'created_at', 'updated_at', 
+            'venue_photos_count', 'contact_phone', 'contact_email', 'location', 
+            'digital_signature', 'venue_photos', 'estimated_customer_base', 
+            'service_quality_rating', 'staff_notes', 'trial_period_days'
+        ]
+    
+    venue_photos = ApplicationDocumentSerializer(many=True, read_only=True)
+
+    def get_applicant_name(self, obj):
+        return f"{obj.applicant.first_name} {obj.applicant.last_name}".strip()
+
+    def get_venue_photos_count(self, obj):
+        return obj.venue_photos.count()
+
+class CustomerApplicationStatusSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SellerApplication
+        fields = ['id', 'store_name', 'store_type', 'location', 'status', 'rejection_reason', 'created_at', 'updated_at', 'digital_signature']
+        read_only_fields = fields
 
