@@ -305,6 +305,20 @@ class StoreViewSet(viewsets.ModelViewSet):
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=201, headers=headers)
         
+    @action(detail=True, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def toggle_favorite(self, request, pk=None):
+        store = self.get_object()
+        user = request.user
+        
+        if user in store.favorited_by.all():
+            user.favorite_stores.remove(store)
+            status_msg = "removed"
+        else:
+            user.favorite_stores.add(store)
+            status_msg = "added"
+            
+        return Response({"status": status_msg})
+        
     @action(detail=False, methods=['get'], permission_classes=[permissions.IsAuthenticated])
     def my_store(self, request):
         user = request.user

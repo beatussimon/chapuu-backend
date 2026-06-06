@@ -23,6 +23,9 @@ class User(AbstractUser):
     # Optional link to a specific store for staff roles (CHEF, DELIVERY)
     employed_store = models.ForeignKey('stores.Store', on_delete=models.SET_NULL, null=True, blank=True, related_name='employees')
 
+    # Saved/Favorited stores
+    favorite_stores = models.ManyToManyField('stores.Store', related_name='favorited_by', blank=True)
+
     def save(self, *args, **kwargs):
         from django.utils import timezone
         if self.is_superuser or self.role == self.Role.SUPERUSER:
