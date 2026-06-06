@@ -45,7 +45,7 @@ class OrderStateMachine:
 
         # Block direct completions for verification-bound orders unless verification bypassed
         if new_state == Order.State.COMPLETED and not bypass_verification:
-            if order.fulfillment_mode in [Order.FulfillmentMode.DELIVERY, Order.FulfillmentMode.PICKUP, Order.FulfillmentMode.TAKEAWAY]:
+            if order.fulfillment_mode in [Order.FulfillmentMode.DELIVERY, Order.FulfillmentMode.PICKUP, Order.FulfillmentMode.TAKEAWAY] and not order.is_instant_payment:
                 raise ValidationError("Handoff verification code required to complete this order.")
 
         with transaction.atomic():
@@ -132,6 +132,11 @@ class OrderStateMachine:
                     
                 # Dynamic commission rate: 7% for RESTAURANT, 2% for SHOP
                 rate = Decimal('0.07') if store.store_type == 'RESTAURANT' else Decimal('0.02')
+                
+                # Waive platform commission (0%) for walk-in POS orders (instant payments)
+                if locked_order.is_instant_payment:
+                    rate = Decimal('0.00')
+                    
                 commission_amount = Decimal('0.00') if is_free_trial else (locked_order.total_amount * rate)
                 
                 CommissionLedgerEntry.objects.create(

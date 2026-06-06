@@ -44,7 +44,7 @@ class OrderSerializer(serializers.ModelSerializer):
         model = Order
         fields = [
             'id', 'store', 'store_name', 'store_phone', 'store_latitude', 'store_longitude', 'store_location', 'store_directions', 'customer', 'customer_name', 'table', 'table_number', 'reservation', 'reservation_time', 'reservation_status', 'reservation_guest_count', 'state', 
-            'fulfillment_mode', 'customer_phone', 'delivery_location', 'delivery_latitude', 'delivery_longitude', 'delivery_directions', 'total_amount', 'delivery_fee', 'delivery_fee_status', 'created_at', 
+            'fulfillment_mode', 'customer_phone', 'delivery_location', 'delivery_latitude', 'delivery_longitude', 'delivery_directions', 'total_amount', 'discount_amount', 'pos_custom_items', 'delivery_fee', 'delivery_fee_status', 'created_at', 
             'updated_at', 'scheduled_time', 'is_instant_payment', 'items', 'payment_message', 'payment_receipt', 'has_review', 'review_details',
             'delivery_code', 'delivery_code_attempts', 'is_locked', 'is_suspicious', 'prep_time_option', 'scheduled_start_time', 
             'reschedule_requested_time', 'reschedule_requested_start_time', 'reschedule_status', 'reschedule_rejection_reason', 'reschedule_count', 'reschedule_request_count', 'reschedule_requests'
@@ -120,6 +120,12 @@ class OrderSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     "Delivery fee must be 0 for instant payment walk-in orders."
                 )
+        else:
+            # Ensure non-POS orders cannot maliciously manipulate prices
+            if 'pos_custom_items' in data:
+                data['pos_custom_items'] = []
+            if 'discount_amount' in data:
+                data['discount_amount'] = 0.0
 
         # Scheduling validations
         from django.utils import timezone
@@ -188,6 +194,15 @@ class OrderSerializer(serializers.ModelSerializer):
                 item_data['unit_price'] = catalog_price
                 total += catalog_price * quantity
                 processed_items.append(item_data)
+                
+            pos_custom_items = validated_data.get('pos_custom_items') or []
+            for custom_item in pos_custom_items:
+                price = float(custom_item.get('price', 0))
+                qty = int(custom_item.get('quantity', 1))
+                total += price * qty
+                
+            discount_amount = float(validated_data.get('discount_amount', 0))
+            total = max(0, float(total) - discount_amount)
             
             # Set calculated scheduled_start_time dynamically using historical averages
             scheduled_time = validated_data.get('scheduled_time')

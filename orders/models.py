@@ -42,6 +42,8 @@ class Order(models.Model):
         help_text="Specific landmarks or detailed directions for delivery rider")
 
     total_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
+    discount_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.0, help_text="Amount discounted at POS")
+    pos_custom_items = models.JSONField(blank=True, null=True, help_text="JSON list of non-catalog custom items added at POS")
     delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0.0, help_text="Delivery or pickup fee set by seller/accountant.")
     delivery_fee_status = models.CharField(
         max_length=20,
