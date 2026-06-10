@@ -238,7 +238,13 @@ class StoreViewSet(viewsets.ModelViewSet):
         # Apply search filter
         search = request.query_params.get('search')
         if search:
-            queryset = queryset.filter(Q(name__icontains=search) | Q(location__icontains=search))
+            queryset = queryset.filter(
+                Q(name__icontains=search) | 
+                Q(location__icontains=search) |
+                Q(products__name__icontains=search) |
+                Q(products__description__icontains=search) |
+                Q(categories__name__icontains=search)
+            ).distinct()
             
         # Apply is_open filter
         is_open = request.query_params.get('is_open')

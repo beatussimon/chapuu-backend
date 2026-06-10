@@ -45,8 +45,19 @@ class UniversalSearchView(APIView):
 
         # 2. Text Search Filtering
         if q:
-            stores_qs = stores_qs.filter(Q(name__icontains=q) | Q(location__icontains=q))
-            products_qs = products_qs.filter(Q(name__icontains=q) | Q(description__icontains=q))
+            stores_qs = stores_qs.filter(
+                Q(name__icontains=q) |
+                Q(location__icontains=q) |
+                Q(products__name__icontains=q) |
+                Q(products__description__icontains=q) |
+                Q(categories__name__icontains=q)
+            ).distinct()
+            products_qs = products_qs.filter(
+                Q(name__icontains=q) |
+                Q(description__icontains=q) |
+                Q(category__name__icontains=q) |
+                Q(store__name__icontains=q)
+            ).distinct()
             categories_qs = categories_qs.filter(name__icontains=q)
 
         # 3. Apply operational filters
