@@ -45,19 +45,40 @@ class UniversalSearchView(APIView):
 
         # 2. Text Search Filtering
         if q:
-            stores_qs = stores_qs.filter(
+            # Optimize to avoid multi-table LEFT OUTER JOINs and DISTINCT on stores
+            matched_category_ids = list(Category.objects.filter(name__icontains=q).values_list('id', flat=True))
+            
+            direct_store_ids = list(Store.objects.filter(is_active=True).filter(
+                Q(name__icontains=q) | Q(location__icontains=q)
+            ).values_list('id', flat=True))
+            
+            category_store_ids = list(Category.objects.filter(
+                id__in=matched_category_ids
+            ).exclude(store__isnull=True).values_list('store_id', flat=True))
+            
+            product_store_ids = list(Product.objects.filter(
+                is_active=True
+            ).filter(
                 Q(name__icontains=q) |
-                Q(location__icontains=q) |
-                Q(products__name__icontains=q) |
-                Q(products__description__icontains=q) |
-                Q(categories__name__icontains=q)
-            ).distinct()
+                Q(description__icontains=q) |
+                Q(category_id__in=matched_category_ids)
+            ).values_list('store_id', flat=True))
+            
+            matched_store_ids = set(direct_store_ids + category_store_ids + product_store_ids)
+            matched_store_ids.discard(None)
+            
+            stores_qs = stores_qs.filter(id__in=matched_store_ids)
+
+            # Optimize to avoid joins on products
+            matched_store_ids_by_name = list(Store.objects.filter(is_active=True, name__icontains=q).values_list('id', flat=True))
+            
             products_qs = products_qs.filter(
                 Q(name__icontains=q) |
                 Q(description__icontains=q) |
-                Q(category__name__icontains=q) |
-                Q(store__name__icontains=q)
-            ).distinct()
+                Q(category_id__in=matched_category_ids) |
+                Q(store_id__in=matched_store_ids_by_name)
+            )
+            
             categories_qs = categories_qs.filter(name__icontains=q)
 
         # 3. Apply operational filters

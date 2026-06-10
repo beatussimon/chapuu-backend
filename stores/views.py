@@ -238,13 +238,41 @@ class StoreViewSet(viewsets.ModelViewSet):
         # Apply search filter
         search = request.query_params.get('search')
         if search:
-            queryset = queryset.filter(
-                Q(name__icontains=search) | 
-                Q(location__icontains=search) |
-                Q(products__name__icontains=search) |
-                Q(products__description__icontains=search) |
-                Q(categories__name__icontains=search)
-            ).distinct()
+            from catalog.models import Category, Product
+            
+            user = request.user
+            is_active_only = not (user and user.is_authenticated and (user.role in ['ADMIN', 'SUPERUSER'] or user.is_superuser))
+            
+            matched_category_ids = list(Category.objects.filter(name__icontains=search).values_list('id', flat=True))
+            
+            # Base Store query for matching IDs
+            store_filter_qs = Store.objects.all()
+            if is_active_only:
+                store_filter_qs = store_filter_qs.filter(is_active=True)
+                
+            direct_store_ids = list(store_filter_qs.filter(
+                Q(name__icontains=search) | Q(location__icontains=search)
+            ).values_list('id', flat=True))
+            
+            category_store_ids = list(Category.objects.filter(
+                id__in=matched_category_ids
+            ).exclude(store__isnull=True).values_list('store_id', flat=True))
+            
+            # Base Product query for matching IDs
+            product_filter_qs = Product.objects.all()
+            if is_active_only:
+                product_filter_qs = product_filter_qs.filter(is_active=True)
+                
+            product_store_ids = list(product_filter_qs.filter(
+                Q(name__icontains=search) |
+                Q(description__icontains=search) |
+                Q(category_id__in=matched_category_ids)
+            ).values_list('store_id', flat=True))
+            
+            matched_store_ids = set(direct_store_ids + category_store_ids + product_store_ids)
+            matched_store_ids.discard(None)
+            
+            queryset = queryset.filter(id__in=matched_store_ids)
             
         # Apply is_open filter
         is_open = request.query_params.get('is_open')
