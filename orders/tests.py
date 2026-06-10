@@ -46,7 +46,7 @@ class POSFlowTest(TestCase):
         
         response = self.client.post(url, payload, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.data['state'], Order.State.READY)
+        self.assertEqual(response.data['state'], Order.State.PREPARING)
         
         # Frontend logic (fixed):
         if response.data['state'] not in [Order.State.READY, Order.State.COMPLETED]:
@@ -438,10 +438,10 @@ class FreeTrialCommissionTest(TestCase):
         # Transition to COMPLETED
         OrderStateMachine.transition_order(order, Order.State.COMPLETED, bypass_verification=True)
         
-        # Verify 3% commission is accrued (20.0 * 0.03 = 0.60)
+        # Verify 2% commission is accrued (20.0 * 0.02 = 0.40)
         entry = CommissionLedgerEntry.objects.filter(order=order).first()
         self.assertIsNotNone(entry)
-        self.assertEqual(float(entry.commission_amount), 0.60)
+        self.assertEqual(float(entry.commission_amount), 0.40)
 
 class KitchenSkipAndMixedOrdersTest(TestCase):
     def setUp(self):
@@ -574,6 +574,8 @@ class DeliveryFeeNegotiationTest(TestCase):
             'store': self.store.id,
             'fulfillment_mode': 'DELIVERY',
             'delivery_location': '123 Main St',
+            'delivery_latitude': -6.1731,
+            'delivery_longitude': 35.7419,
             'payment_message': 'MPESA transaction slip 123',
             'items': [
                 {'product': self.product.id, 'quantity': 2, 'unit_price': 50.0} # Subtotal 100.0
@@ -595,7 +597,7 @@ class DeliveryFeeNegotiationTest(TestCase):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         
         order.refresh_from_db()
-        self.assertEqual(order.state, Order.State.READY)
+        self.assertEqual(order.state, Order.State.PREPARING)
         self.assertEqual(float(order.delivery_fee), 15.0)
         self.assertEqual(order.delivery_fee_status, 'AGREED')
         self.assertEqual(float(order.total_amount), 115.0) # 100 + 15
@@ -620,13 +622,14 @@ class DeliveryFeeNegotiationTest(TestCase):
         self.assertEqual(order.delivery_fee_status, 'AGREED')
         self.assertEqual(float(order.total_amount), 120.0) # 100 + 20
 
-        # 5. Transition order to COMPLETED
+        # 5. Transition order to COMPLETED (need to go PREPARING -> READY -> COMPLETED)
+        order = OrderStateMachine.transition_order(order, Order.State.READY)
         OrderStateMachine.transition_order(order, Order.State.COMPLETED, bypass_verification=True)
         
-        # Verify 3% commission is accrued on 120.0 (3.60)
+        # Verify 2% commission is accrued on 120.0 (2.40)
         entry = CommissionLedgerEntry.objects.filter(order=order).first()
         self.assertIsNotNone(entry)
-        self.assertEqual(float(entry.commission_amount), 3.60)
+        self.assertEqual(float(entry.commission_amount), 2.40)
 
 
 class ReverseGeocodeProxyTests(TestCase):

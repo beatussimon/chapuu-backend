@@ -176,3 +176,85 @@ class PushDeviceRegisterView(views.APIView):
 
         deleted, _ = PushDevice.objects.filter(user=request.user, push_token=token).delete()
         return Response({'status': 'deregistered', 'deleted': deleted}, status=status.HTTP_200_OK)
+
+
+class UserFavoritesView(views.APIView):
+    """
+    Endpoint to manage current user's favorite stores.
+    GET /api/auth/users/me/favorites/ - List user's favorite stores
+    POST /api/auth/users/me/favorites/ - Add store to favorites (body: {"store_id": id})
+    DELETE /api/auth/users/me/favorites/ - Remove store from favorites (query param: ?store_id=id)
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from django.core.cache import cache
+        import uuid
+        from stores.serializers import StoreSerializer
+        
+        lat = request.query_params.get('lat', '')
+        lng = request.query_params.get('lng', '')
+        radius = request.query_params.get('radius', '')
+        page = request.query_params.get('page', '')
+        
+        # Get or generate user-specific version key for atomic invalidation
+        version = cache.get(f"user_favorites_version_{request.user.id}")
+        if version is None:
+            version = uuid.uuid4().hex
+            cache.set(f"user_favorites_version_{request.user.id}", version, 86400) # cache for 24h
+            
+        cache_key = f"user_favorites_{request.user.id}_v{version}_{lat}_{lng}_{radius}_{page}"
+        cached_data = cache.get(cache_key)
+        if cached_data is not None:
+            return Response(cached_data)
+
+        queryset = request.user.favorite_stores.filter(is_active=True).prefetch_related('payment_methods', 'kitchen_settings')
+        
+        # Proximity radius support if lat/lng are passed (like the other store views)
+        if lat and lng:
+            from stores.geo_utils import annotate_distances, filter_by_radius
+            queryset = annotate_distances(queryset, lat, lng)
+            if radius:
+                queryset = filter_by_radius(queryset, radius)
+
+        # Standard pagination
+        from config.pagination import StandardPagination
+        paginator = StandardPagination()
+        page_qs = paginator.paginate_queryset(queryset, request, view=self)
+        if page_qs is not None:
+            serializer = StoreSerializer(page_qs, many=True, context={'request': request})
+            response_data = paginator.get_paginated_response(serializer.data).data
+            cache.set(cache_key, response_data, 60*15) # Cache for 15 minutes
+            return Response(response_data)
+
+        serializer = StoreSerializer(queryset, many=True, context={'request': request})
+        cache.set(cache_key, serializer.data, 60*15) # Cache for 15 minutes
+        return Response(serializer.data)
+
+    def post(self, request):
+        from django.core.cache import cache
+        store_id = request.data.get('store_id')
+        if not store_id:
+            return Response({'error': 'store_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            store = Store.objects.get(id=store_id, is_active=True)
+        except Store.DoesNotExist:
+            return Response({'error': 'Store not found'}, status=status.HTTP_444_NOT_FOUND if False else status.HTTP_404_NOT_FOUND)
+        
+        request.user.favorite_stores.add(store)
+        cache.delete(f"user_favorites_version_{request.user.id}")
+        return Response({'status': 'added', 'store_id': store_id}, status=status.HTTP_200_OK)
+
+    def delete(self, request):
+        from django.core.cache import cache
+        store_id = request.query_params.get('store_id')
+        if not store_id:
+            return Response({'error': 'store_id is required'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            store = Store.objects.get(id=store_id)
+        except Store.DoesNotExist:
+            return Response({'error': 'Store not found'}, status=status.HTTP_404_NOT_FOUND)
+        
+        request.user.favorite_stores.remove(store)
+        cache.delete(f"user_favorites_version_{request.user.id}")
+        return Response({'status': 'removed', 'store_id': store_id}, status=status.HTTP_200_OK)

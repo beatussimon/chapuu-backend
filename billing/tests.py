@@ -53,6 +53,8 @@ class BillingAndVerificationTests(TestCase):
         payload = {
             'store': self.store.id,
             'fulfillment_mode': 'DELIVERY',
+            'delivery_latitude': Decimal('-6.1731'),
+            'delivery_longitude': Decimal('35.7419'),
             'payment_message': 'MPESA-TX-999',
             'items': [
                 {

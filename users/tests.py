@@ -298,3 +298,93 @@ class CustomerSelfProfileUpdateTests(APITestCase):
         self.customer.refresh_from_db()
         self.assertTrue(self.customer.profile_picture.name.endswith('.webp')) # compressed to webp
 
+
+class UserFavoritesViewTests(APITestCase):
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+
+        self.customer = User.objects.create_user(
+            username='cust_fav_test',
+            password='password123',
+            role=User.Role.CUSTOMER
+        )
+        self.seller = User.objects.create_user(
+            username='sell_fav_test',
+            password='password123',
+            role=User.Role.SELLER
+        )
+        from stores.models import Store
+        self.store = Store.objects.create(
+            name='Fav Test Store',
+            store_type='RESTAURANT',
+            owner=self.seller,
+            is_active=True
+        )
+
+    def test_favorites_workflow(self):
+        self.client.force_authenticate(user=self.customer)
+        url = '/api/auth/users/me/favorites/'
+
+        # 1. Get initial empty favorites
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data.get('results') if 'results' in response.data else response.data
+        self.assertEqual(len(data), 0)
+
+        # 2. Add store to favorites
+        response = self.client.post(url, {'store_id': self.store.id}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['status'], 'added')
+
+        # 3. Verify it is now in favorites list
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data.get('results') if 'results' in response.data else response.data
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]['id'], self.store.id)
+
+        # 4. Remove store from favorites
+        response = self.client.delete(f"{url}?store_id={self.store.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data['status'], 'removed')
+
+        # 5. Verify it is empty again
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.data.get('results') if 'results' in response.data else response.data
+        self.assertEqual(len(data), 0)
+
+    def test_favorites_caching_and_invalidation(self):
+        self.client.force_authenticate(user=self.customer)
+        url = '/api/auth/users/me/favorites/'
+
+        # Add a store to favorites
+        self.client.post(url, {'store_id': self.store.id}, format='json')
+
+        # 1. Fetch to populate cache
+        response1 = self.client.get(url)
+        self.assertEqual(response1.status_code, status.HTTP_200_OK)
+
+        # 2. Modify the store name in the database directly (bypassing favorites logic)
+        from stores.models import Store
+        store_obj = Store.objects.get(id=self.store.id)
+        store_obj.name = "Cache Hit Name"
+        store_obj.save()
+
+        # 3. Fetch again. Since it hits the cache, it should still return the old name "Fav Test Store"
+        response2 = self.client.get(url)
+        data2 = response2.data.get('results') if 'results' in response2.data else response2.data
+        self.assertEqual(data2[0]['name'], "Fav Test Store")
+
+        # 4. Remove the store from favorites (triggers version increment/cache invalidation)
+        self.client.delete(f"{url}?store_id={self.store.id}")
+
+        # 5. Add it back to favorites
+        self.client.post(url, {'store_id': self.store.id}, format='json')
+
+        # 6. Fetch again. Since the version key was cleared, it should fetch the updated name "Cache Hit Name" from the database
+        response3 = self.client.get(url)
+        data3 = response3.data.get('results') if 'results' in response3.data else response3.data
+        self.assertEqual(data3[0]['name'], "Cache Hit Name")
+
