@@ -150,6 +150,7 @@ class UniversalSearchView(APIView):
             item['relevance_score'] = getattr(final_products[i], 'relevance_score', None)
             item['store_name'] = final_products[i].store.name
             item['store_is_open'] = final_products[i].store.is_open
+            item['store_id'] = final_products[i].store_id
 
         # Categories serialization
         serialized_categories = CategorySerializer(final_categories, many=True, context={'request': request}).data

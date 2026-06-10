@@ -8,11 +8,12 @@ class ProductSerializer(serializers.ModelSerializer):
     image2_url = serializers.SerializerMethodField()
     stock_quantity = serializers.SerializerMethodField()
     computed_is_available = serializers.SerializerMethodField()
+    store_id = serializers.IntegerField(read_only=True)
 
     class Meta:
         model = Product
         fields = [
-            'id', 'store', 'category', 'category_name', 'name', 'description',
+            'id', 'store', 'store_id', 'category', 'category_name', 'name', 'description',
             'price', 'image', 'image_url', 'image2', 'image2_url', 'requires_inventory', 'requires_kitchen',
             'estimated_prep_time_minutes', 'is_active', 'created_at',
             'stock_quantity', 'computed_is_available'
